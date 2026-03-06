@@ -138,6 +138,48 @@ export function swapTiles(board, first, second) {
   syncTilePosition(tileA, second.row, second.col);
 }
 
+export function hasPossibleMoves(board) {
+  for (let row = 0; row < BOARD_SIZE; row += 1) {
+    for (let col = 0; col < BOARD_SIZE; col += 1) {
+      if (!board[row][col]) {
+        continue;
+      }
+
+      const neighbors = [
+        { row, col: col + 1 },
+        { row: row + 1, col },
+      ];
+
+      for (const neighbor of neighbors) {
+        if (
+          neighbor.row < 0 ||
+          neighbor.row >= BOARD_SIZE ||
+          neighbor.col < 0 ||
+          neighbor.col >= BOARD_SIZE
+        ) {
+          continue;
+        }
+        if (!board[neighbor.row][neighbor.col]) {
+          continue;
+        }
+
+        const first = { row, col };
+        const second = { row: neighbor.row, col: neighbor.col };
+
+        swapTiles(board, first, second);
+        const canMatch = findMatches(board).length > 0;
+        swapTiles(board, first, second);
+
+        if (canMatch) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 export function findMatches(board) {
   const matchedPositions = new Map();
 

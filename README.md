@@ -17,11 +17,18 @@ This is a playable match-3 prototype built with `HTML + CSS + Vanilla JavaScript
 - 8x8 棋盘，4 种方块类型（`A/B/C/D`）。
 - 左侧 4 名角色，按方块类型充能。
 - 角色能量满后自动释放技能，也支持手动点击技能按钮触发。
+- 支持 `无限模式` 与 `关卡模式`（目标分 + 步数限制）。
 - 支持连锁消除（Combo）与连击倍率计分。
 - 5 连及以上触发“同色清场”特殊效果。
-- 交换失败回弹并抖动反馈。
+- 交换失败回退并抖动反馈。
 - 消除、下落、生成、同色清场、飘分等动画。
+- 死局自动检测并触发洗牌动画。
+- 内置 WebAudio 音效（交换、命中、技能、洗牌、胜负）。
+- 分层命中特效（冲击环 + 火花 + 飘分）。
 - 难度切换（轻松/标准/困难）影响充能速度和随机连锁概率。
+- 采用冷灰渐变背景 + 柔和毛玻璃面板 + 莫兰迪棋子配色的低干扰视觉风格。
+- 技能就绪态使用 Shimmer 反光动画，替代高强度呼吸灯。
+- 连击横幅与飘分降权并缩短停留，让注意力集中在棋盘上。
 
 ---
 
@@ -74,21 +81,29 @@ Match-3-Game/
 
 ### 5. 玩法与规则
 
-#### 5.1 基础规则
+#### 5.1 模式说明
+
+- 无限模式：
+  - 无步数限制，持续挑战更高分。
+- 关卡模式：
+  - 在限定步数内达到目标分。
+  - 步数耗尽且未达标则失败。
+
+#### 5.2 基础规则
 
 - 点击两个相邻方块进行交换。
 - 仅当交换后能形成匹配时交换生效，否则回退并抖动提示。
 - 横向或纵向连续 `>=3` 个同类型方块即消除。
 - 消除后方块下落并在顶部生成新方块，支持连锁。
 
-#### 5.2 特殊规则（5 连）
+#### 5.3 特殊规则（5 连）
 
 - 若某次匹配中出现连续 `>=5`，触发“同色清场”：
   - 清除当前棋盘上所有与该连消类型相同的方块。
   - 播放棋盘高亮与特殊消除动画。
   - 额外清除部分也参与计分与充能。
 
-#### 5.3 计分规则
+#### 5.4 计分规则
 
 - 每个被清除方块基础分：`10`。
 - 连击倍率：
@@ -97,7 +112,7 @@ Match-3-Game/
   - `Combo 3+` -> `x2`
 - 每次消除会在棋盘上显示飘分（含倍率），同色清场会显示特殊标识。
 
-#### 5.4 角色充能与技能
+#### 5.5 角色充能与技能
 
 - 方块类型对应角色：
   - `A -> 角色1（战士）`
@@ -136,15 +151,18 @@ Match-3-Game/
 
 ---
 
-### 7. 动画与反馈
+### 7. 视觉与动画反馈（2026-03）
 
-- 方块消除动画（缩放淡出）
-- 方块下落动画（按真实位移差值）
-- 新方块生成动画
-- 同色清场特效（棋盘发光 + 特殊消除）
-- 交换失败抖动
-- 技能可用发光、施法脉冲
-- 飘分提示（普通/同色清场）
+- 全局主题：`#F8FAFC -> #F1F5F9` 冷灰渐变，降低饱和度与视觉疲劳。
+- 面板风格：半透明毛玻璃（`--panel-bg: rgba(255,255,255,0.4)`）+ `blur(24px)` + 细白边。
+- 棋子风格：莫兰迪低饱和配色，哑光质感（轻底部阴影 + 极浅顶部高光）。
+- 选中态：使用 `scale(1.05)` + 柔和阴影，不使用高亮发光描边。
+- 消除/生成：更干脆的缩放淡出与短时生成动画，减少拖泥带水。
+- 控件统一：按钮与下拉统一 `12px` 圆角，hover 仅做轻微亮度与阴影变化。
+- 技能就绪态：使用 Shimmer 反光动画，不再使用脉冲呼吸灯。
+- 连击提示：`combo-banner` 与 `score-pop` 降低视觉权重并缩短停留时长。
+- 动画曲线：统一为 `cubic-bezier(0.2, 0.8, 0.2, 1)`，移除回弹感。
+- 程序化音效（WebAudio）与命中特效分层（环形冲击 + 火花粒子）保留。
 
 ---
 
@@ -187,12 +205,20 @@ Match-3-Game/
   - 主要字段：`energyPerTile`、`antiComboLevel`
 - 动画时长：
   - `game.js` 中 `ANIMATION_MS`
+- 动画停留时长：
+  - `game.js` 中 `showScorePopup` / `showComboBanner` 的 `setTimeout`
 - 计分基础值：
   - `score.js` 中 `POINTS_PER_TILE`
 - 棋盘规模/方块类型：
   - `board.js` 中 `BOARD_SIZE`、`TILE_TYPES`
 - 技能效果：
   - `skills.js` 中 4 个 `apply...` 函数
+- 全局视觉主题：
+  - `style.css` 中 `:root` 变量（如 `--bg-start`、`--bg-end`、`--panel-bg`、`--accent`）
+- 棋子颜色与质感：
+  - `style.css` 中 `--tile-a-1 ~ --tile-d-2` 与 `.tile` 样式
+- 交互动效曲线：
+  - `style.css` 中 `--ease-smooth` 与关键帧（`buttonShimmer`、`comboBannerIn`、`scorePopFloat`）
 
 ---
 
@@ -200,18 +226,17 @@ Match-3-Game/
 
 当前是原型版本，暂未包含：
 
-- 关卡目标（步数、目标分、任务条件）
-- 死局检测与自动洗牌
-- 音效与更完整的 VFX
+- 更丰富的关卡编排（多关卡目标与任务类型）
+- 更高级的音效资源与多层 VFX 美术资产
 - 数据持久化（本地最高分、设置记忆）
-- 教程引导与新手提示
+- 更完善的无障碍支持（高对比模式、键盘完整操作）
 
 推荐下一步：
 
-1. 增加“步数限制 + 目标分”关卡制。
-2. 增加死局检测与洗牌动画。
-3. 增加音效和命中特效分层。
-4. 增加本地存档（难度偏好、最高分）。
+1. 增加多关卡配置（章节、目标类型、奖励）。
+2. 增加死局提示文案与“手动洗牌道具”。
+3. 接入真实音效资源（打击/技能/胜负 BGM）。
+4. 增加本地存档（难度偏好、最高分、关卡进度）。
 
 ---
 
@@ -226,11 +251,18 @@ Highlights:
 - 8x8 board with 4 tile types (`A/B/C/D`)
 - 4 vertical character cards with energy bars and skills
 - Auto-cast skills when energy reaches 100 (manual click is also supported)
+- Two modes: `Endless` and `Level` (target score + move limit)
 - Cascading match resolution with combo multipliers
 - Special rule: any 5+ run triggers board-wide same-type clear
 - Invalid swap rollback with shake feedback
 - Animated remove/fall/spawn/special-clear/score-pop effects
+- Deadlock detection with automatic reshuffle animation
+- Layered hit FX (ring + sparks + score popup)
+- Built-in WebAudio SFX (swap/hit/skill/reshuffle/win-lose)
 - Difficulty presets affecting both energy pace and random cascade tendency
+- Refined low-distraction visual language: cool gray gradient + frosted panels + muted Morandi tiles
+- Skill-ready buttons now use a shimmer pass instead of pulse glow
+- Combo banner and score popups were de-emphasized for stronger board focus
 
 ---
 
@@ -285,6 +317,14 @@ Match-3-Game/
 - Match `>=3` horizontally or vertically to clear.
 - Cleared spaces collapse via gravity; new tiles spawn from the top.
 - Cascades are processed until stable.
+
+Mode rules:
+
+- Endless mode:
+  - No move limit. Keep pushing your high score.
+- Level mode:
+  - Reach target score before moves run out.
+  - If moves are exhausted before target, the level fails.
 
 Special rule:
 
@@ -380,9 +420,12 @@ Common balancing entry points:
 
 - `game.js` -> `DIFFICULTY_CONFIGS`
 - `game.js` -> `ANIMATION_MS`
+- `game.js` -> popup/banner timeout in `showScorePopup` / `showComboBanner`
 - `score.js` -> `POINTS_PER_TILE`
 - `board.js` -> `BOARD_SIZE`, `TILE_TYPES`
 - `skills.js` -> `apply...` skill functions
+- `style.css` -> global theme tokens in `:root` (`--bg-*`, `--panel-*`, `--accent`, `--tile-*`)
+- `style.css` -> motion token `--ease-smooth` and keyframes (`buttonShimmer`, `comboBannerIn`, `scorePopFloat`)
 
 ---
 
@@ -390,15 +433,14 @@ Common balancing entry points:
 
 This is still a prototype. It does not yet include:
 
-- level goals (target score / move limits)
-- dead-board detection and reshuffle
-- audio and richer layered VFX
+- richer level progression (multi-level campaigns and objective variants)
+- polished art/audio assets beyond procedural effects
 - persistence (best score / settings memory)
-- tutorial flow
+- complete accessibility options (high-contrast mode, full keyboard flow)
 
 ---
 
 ## License
 
-Prototype/demo project for learning and iteration.  
-You can add your own license policy if needed.
+This project is licensed under the Apache License 2.0.  
+请查看 [LICENSE](/Users/lappland/Match-3-Game/LICENSE) 文件获取完整条款。

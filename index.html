@@ -3,37 +3,64 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>三消原型</title>
+    <title>缤纷果园三消</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <div class="bg-candy bg-candy-a" aria-hidden="true"></div>
+    <div class="bg-candy bg-candy-b" aria-hidden="true"></div>
+    <div class="bg-candy bg-candy-c" aria-hidden="true"></div>
+
     <main class="game-layout">
-      <section class="character-panel">
-        <h1>角色面板</h1>
+      <section class="character-panel panel-card">
+        <header class="panel-heading">
+          <p class="panel-tag">队伍状态</p>
+          <h1>糖果小队</h1>
+        </header>
         <div id="characters" class="characters"></div>
       </section>
 
-      <section class="board-panel">
+      <section class="board-panel panel-card">
         <div class="board-toolbar">
           <div class="toolbar-title">
-            <h2>战斗棋盘</h2>
+            <p class="game-kicker">果冻糖果风</p>
+            <h2>缤纷消消乐</h2>
             <p id="difficulty-desc" class="difficulty-desc"></p>
           </div>
           <div class="toolbar-controls">
+            <label for="mode-select">模式</label>
+            <select id="mode-select" class="difficulty-select">
+              <option value="endless" selected>无限模式</option>
+              <option value="level">关卡模式</option>
+            </select>
             <label for="difficulty-select">难度</label>
             <select id="difficulty-select" class="difficulty-select">
               <option value="easy">轻松</option>
               <option value="normal" selected>标准</option>
               <option value="hard">困难</option>
             </select>
+            <button id="tutorial-button" class="restart-button" type="button">
+              新手引导
+            </button>
+            <button id="sound-button" class="restart-button" type="button">
+              音效：开
+            </button>
             <button id="restart-button" class="restart-button" type="button">
               重新开始
+            </button>
+            <button
+              id="next-level-button"
+              class="restart-button next-level-button"
+              type="button"
+              hidden
+            >
+              下一关
             </button>
           </div>
         </div>
 
         <header class="score-panel">
-          <div class="score-item">
+          <div class="score-item score-main">
             <span class="label">分数</span>
             <span id="score-value" class="value">0</span>
           </div>
@@ -41,15 +68,67 @@
             <span class="label">连击</span>
             <span id="combo-value" class="value">0</span>
           </div>
+          <div class="score-item">
+            <span class="label">目标分</span>
+            <span id="target-value" class="value">∞</span>
+          </div>
+          <div class="score-item">
+            <span class="label">剩余步数</span>
+            <span id="moves-value" class="value">∞</span>
+          </div>
+          <div class="score-item">
+            <span class="label">关卡</span>
+            <span id="level-value" class="value">-</span>
+          </div>
         </header>
 
+        <div class="goal-progress" aria-live="polite">
+          <div class="goal-progress-track">
+            <div id="goal-progress-fill" class="goal-progress-fill"></div>
+          </div>
+          <span id="goal-progress-text" class="goal-progress-text">无限模式：尽情冲分</span>
+        </div>
+
+        <p id="mode-status" class="mode-status"></p>
+        <div id="combo-banner" class="combo-banner" aria-hidden="true"></div>
+
         <div class="board-wrap">
+          <div class="board-frame" aria-hidden="true"></div>
           <div id="board" class="board" aria-label="三消棋盘"></div>
+          <div id="fx-layer" class="fx-layer" aria-hidden="true"></div>
           <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
         </div>
-        <p class="hint">点击两个相邻方块即可交换。能量满时角色会自动施放技能。</p>
+        <p class="hint">交换相邻水果，形成 3 连及以上可消除；同色水果会为对应角色充能，满能量自动释放技能。</p>
       </section>
     </main>
+
+    <div
+      id="tutorial-overlay"
+      class="tutorial-overlay hidden"
+      aria-hidden="true"
+      role="dialog"
+      aria-label="新手引导"
+    >
+      <div class="tutorial-card">
+        <h3>新手引导</h3>
+        <p class="tutorial-intro">30 秒上手：</p>
+        <ol class="tutorial-list">
+          <li>点击两个相邻水果进行交换，形成 3 连及以上即可消除。</li>
+          <li>同色水果给对应角色充能，充满后会自动释放技能。</li>
+          <li>关卡模式下要在步数用尽前达到目标分，胜利后可进入下一关。</li>
+          <li>若没有可交换组合会自动洗牌，并播放重排动画。</li>
+        </ol>
+        <div class="tutorial-actions">
+          <label class="tutorial-checkbox">
+            <input id="tutorial-hide-toggle" type="checkbox" />
+            下次不再自动显示
+          </label>
+          <button id="tutorial-close-button" class="restart-button" type="button">
+            开始游戏
+          </button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="game.js"></script>
   </body>

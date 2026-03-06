@@ -4,6 +4,7 @@ import {
   findMatches,
   findLongMatchTypes,
   generateBoard,
+  hasPossibleMoves,
   removeMatches,
   removeTilesByTypes,
   spawnTiles,
@@ -24,49 +25,110 @@ import {
 } from "./score.js";
 
 const ANIMATION_MS = {
-  swap: 130,
-  remove: 220,
-  specialRemove: 300,
-  fall: 260,
+  swap: 200,
+  remove: 180,
+  specialRemove: 210,
+  fall: 300,
   skillWindup: 180,
   invalidSwap: 220,
+  reshuffle: 440,
 };
 
-const boardElement = document.getElementById("board");
-const scorePopLayerElement = document.getElementById("score-pop-layer");
-const charactersElement = document.getElementById("characters");
-const scoreValueElement = document.getElementById("score-value");
-const comboValueElement = document.getElementById("combo-value");
-const difficultySelectElement = document.getElementById("difficulty-select");
-const difficultyDescElement = document.getElementById("difficulty-desc");
-const restartButtonElement = document.getElementById("restart-button");
+const TUTORIAL_STORAGE_KEY = "match3_tutorial_seen_v1";
+
+const TILE_VISUALS = {
+  A: { icon: "🍓", name: "草莓" },
+  B: { icon: "🍉", name: "西瓜" },
+  C: { icon: "🍇", name: "葡萄" },
+  D: { icon: "🍋", name: "柠檬" },
+};
+
+const CHARACTER_VISUALS = {
+  1: { icon: "🍓", role: "十字破阵", chargeIcon: "🍓", chargeName: "草莓" },
+  2: { icon: "🍉", role: "行列掌控", chargeIcon: "🍉", chargeName: "西瓜" },
+  3: { icon: "🍇", role: "范围轰击", chargeIcon: "🍇", chargeName: "葡萄" },
+  4: { icon: "🍋", role: "诡影收割", chargeIcon: "🍋", chargeName: "柠檬" },
+};
 
 const DIFFICULTY_CONFIGS = {
   easy: {
     key: "easy",
     label: "轻松",
-    energyPerTile: 4,
+    energyPerTile: 5,
     antiComboLevel: 0,
-    desc: "充能偏快，随机连锁更多，适合爽快体验。",
+    desc: "充能更快，随机连锁更多。",
   },
   normal: {
     key: "normal",
     label: "标准",
     energyPerTile: 3,
     antiComboLevel: 1,
-    desc: "充能与连锁平衡，推荐日常游玩。",
+    desc: "充能与连锁平衡。",
   },
   hard: {
     key: "hard",
     label: "困难",
-    energyPerTile: 2,
+    energyPerTile: 1,
     antiComboLevel: 2,
-    desc: "充能更慢，随机连锁压制更强，更考验规划。",
+    desc: "充能更慢，随机连锁较少。",
   },
 };
 
+const MODE_CONFIGS = {
+  endless: {
+    key: "endless",
+    label: "无限模式",
+    status: "无限模式：没有步数限制，尽可能冲击更高分。",
+  },
+  level: {
+    key: "level",
+    label: "关卡模式",
+    status: "关卡模式：在限定步数内达到目标分。",
+  },
+};
+
+const LEVEL_TARGETS = {
+  easy: { targetScore: 3600, moves: 30 },
+  normal: { targetScore: 5200, moves: 24 },
+  hard: { targetScore: 7000, moves: 20 },
+};
+
+const LEVEL_SCALING = {
+  easy: { targetStep: 900, moveDropEvery: 2, minMoves: 18 },
+  normal: { targetStep: 1200, moveDropEvery: 2, minMoves: 15 },
+  hard: { targetStep: 1500, moveDropEvery: 3, minMoves: 12 },
+};
+
+const boardElement = document.getElementById("board");
+const fxLayerElement = document.getElementById("fx-layer");
+const scorePopLayerElement = document.getElementById("score-pop-layer");
+const charactersElement = document.getElementById("characters");
+const scoreValueElement = document.getElementById("score-value");
+const comboValueElement = document.getElementById("combo-value");
+const targetValueElement = document.getElementById("target-value");
+const movesValueElement = document.getElementById("moves-value");
+const levelValueElement = document.getElementById("level-value");
+const goalProgressFillElement = document.getElementById("goal-progress-fill");
+const goalProgressTextElement = document.getElementById("goal-progress-text");
+const modeStatusElement = document.getElementById("mode-status");
+const comboBannerElement = document.getElementById("combo-banner");
+const modeSelectElement = document.getElementById("mode-select");
+const difficultySelectElement = document.getElementById("difficulty-select");
+const difficultyDescElement = document.getElementById("difficulty-desc");
+const restartButtonElement = document.getElementById("restart-button");
+const nextLevelButtonElement = document.getElementById("next-level-button");
+const soundButtonElement = document.getElementById("sound-button");
+const tutorialButtonElement = document.getElementById("tutorial-button");
+const tutorialOverlayElement = document.getElementById("tutorial-overlay");
+const tutorialCloseButtonElement = document.getElementById(
+  "tutorial-close-button",
+);
+const tutorialHideToggleElement = document.getElementById("tutorial-hide-toggle");
+
 const state = {
   difficulty: "normal",
+  mode: "endless",
+  levelIndex: 1,
   board: generateBoard(),
   characters: createCharacters(),
   score: createScoreState(),
@@ -74,6 +136,14 @@ const state = {
   isProcessing: false,
   autoSkillRunning: false,
   previousTilePositions: new Map(),
+  movesLeft: null,
+  targetScore: null,
+  gameOver: false,
+  gameResult: null,
+  audioEnabled: true,
+  audioContext: null,
+  tutorialOpen: false,
+  comboBannerTimer: null,
 };
 
 function wait(ms) {
@@ -95,18 +165,482 @@ function getBoardGapPx() {
   return Number.isFinite(gap) ? gap : 0;
 }
 
+function isLevelMode() {
+  return state.mode === MODE_CONFIGS.level.key;
+}
+
 function getDifficultyConfig() {
   return DIFFICULTY_CONFIGS[state.difficulty] ?? DIFFICULTY_CONFIGS.normal;
 }
 
+function getModeConfig() {
+  return MODE_CONFIGS[state.mode] ?? MODE_CONFIGS.endless;
+}
+
+function getLevelTarget() {
+  const base = LEVEL_TARGETS[state.difficulty] ?? LEVEL_TARGETS.normal;
+  const scaling = LEVEL_SCALING[state.difficulty] ?? LEVEL_SCALING.normal;
+  const levelOffset = Math.max(0, state.levelIndex - 1);
+
+  const targetScore = base.targetScore + levelOffset * scaling.targetStep;
+  const movesDrop = Math.floor(levelOffset / scaling.moveDropEvery);
+  const moves = Math.max(scaling.minMoves, base.moves - movesDrop);
+
+  return {
+    targetScore,
+    moves,
+  };
+}
+
+function shouldAutoShowTutorial() {
+  try {
+    return window.localStorage.getItem(TUTORIAL_STORAGE_KEY) !== "1";
+  } catch {
+    return true;
+  }
+}
+
+function setTutorialSeen() {
+  try {
+    window.localStorage.setItem(TUTORIAL_STORAGE_KEY, "1");
+  } catch {
+    // Ignore storage failures in private mode.
+  }
+}
+
+function getAudioContext() {
+  if (!state.audioEnabled) {
+    return null;
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    return null;
+  }
+
+  if (!state.audioContext) {
+    state.audioContext = new AudioContextClass();
+  }
+
+  return state.audioContext;
+}
+
+async function unlockAudio() {
+  const audioContext = getAudioContext();
+  if (!audioContext) {
+    return;
+  }
+
+  if (audioContext.state === "suspended") {
+    await audioContext.resume();
+  }
+}
+
+function playTone({
+  frequency = 440,
+  duration = 0.08,
+  type = "sine",
+  gainValue = 0.03,
+  slideTo = null,
+  delay = 0,
+} = {}) {
+  const audioContext = getAudioContext();
+  if (!audioContext) {
+    return;
+  }
+
+  const start = audioContext.currentTime + delay;
+  const end = start + duration;
+
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, start);
+  if (slideTo) {
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), end);
+  }
+
+  gainNode.gain.setValueAtTime(0.0001, start);
+  gainNode.gain.exponentialRampToValueAtTime(gainValue, start + 0.01);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, end);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+
+  oscillator.start(start);
+  oscillator.stop(end + 0.02);
+}
+
+function playNoise({ duration = 0.05, gainValue = 0.015 } = {}) {
+  const audioContext = getAudioContext();
+  if (!audioContext) {
+    return;
+  }
+
+  const sampleRate = audioContext.sampleRate;
+  const frameCount = Math.max(1, Math.floor(sampleRate * duration));
+  const buffer = audioContext.createBuffer(1, frameCount, sampleRate);
+  const channelData = buffer.getChannelData(0);
+
+  for (let index = 0; index < frameCount; index += 1) {
+    channelData[index] = (Math.random() * 2 - 1) * (1 - index / frameCount);
+  }
+
+  const source = audioContext.createBufferSource();
+  const filter = audioContext.createBiquadFilter();
+  const gainNode = audioContext.createGain();
+
+  source.buffer = buffer;
+  filter.type = "highpass";
+  filter.frequency.value = 900;
+
+  const now = audioContext.currentTime;
+  gainNode.gain.setValueAtTime(gainValue, now);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  source.connect(filter);
+  filter.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+  source.start(now);
+}
+
+function playSwapSfx(isValidSwap) {
+  if (isValidSwap) {
+    playTone({ frequency: 540, slideTo: 640, duration: 0.06, gainValue: 0.02 });
+  } else {
+    playTone({ frequency: 220, slideTo: 170, duration: 0.08, gainValue: 0.03, type: "sawtooth" });
+    playNoise({ duration: 0.05, gainValue: 0.008 });
+  }
+}
+
+function playHitSfx(removedCount, comboLevel, { special = false } = {}) {
+  if (removedCount <= 0) {
+    return;
+  }
+
+  const base = 360 + Math.min(removedCount, 12) * 18;
+  const comboBoost = comboLevel >= 2 ? comboLevel * 28 : 0;
+  const frequency = base + comboBoost;
+
+  playTone({ frequency, slideTo: frequency + 80, duration: 0.08, gainValue: 0.03 });
+  playTone({ frequency: frequency * 1.5, duration: 0.06, gainValue: 0.012, delay: 0.015 });
+
+  if (comboLevel >= 2) {
+    playTone({
+      frequency: frequency + 160,
+      slideTo: frequency + 260,
+      duration: 0.07,
+      gainValue: 0.012,
+      delay: 0.04,
+      type: "triangle",
+    });
+  }
+
+  if (special) {
+    playTone({
+      frequency: 720,
+      slideTo: 1150,
+      duration: 0.18,
+      gainValue: 0.02,
+      type: "triangle",
+    });
+    playNoise({ duration: 0.08, gainValue: 0.012 });
+  }
+}
+
+function playSkillSfx(characterId) {
+  const tones = {
+    1: [420, 650],
+    2: [380, 560],
+    3: [470, 710],
+    4: [350, 520],
+  };
+  const [first, second] = tones[characterId] ?? [400, 600];
+
+  playTone({ frequency: first, slideTo: second, duration: 0.14, gainValue: 0.02 });
+  playTone({ frequency: second * 1.2, duration: 0.1, gainValue: 0.012, delay: 0.03 });
+}
+
+function playReshuffleSfx() {
+  playNoise({ duration: 0.12, gainValue: 0.012 });
+  playTone({ frequency: 320, slideTo: 740, duration: 0.2, gainValue: 0.018, type: "triangle" });
+}
+
+function playModeResultSfx(isWin) {
+  if (isWin) {
+    playTone({ frequency: 520, duration: 0.09, gainValue: 0.02 });
+    playTone({ frequency: 660, duration: 0.09, gainValue: 0.02, delay: 0.08 });
+    playTone({ frequency: 820, duration: 0.12, gainValue: 0.02, delay: 0.16 });
+  } else {
+    playTone({ frequency: 280, slideTo: 200, duration: 0.18, gainValue: 0.03, type: "sawtooth" });
+  }
+}
+
+function updateSoundButton() {
+  if (!soundButtonElement) {
+    return;
+  }
+
+  soundButtonElement.textContent = `音效：${state.audioEnabled ? "开" : "关"}`;
+}
+
+function getBoardMetrics() {
+  const gap = getBoardGapPx();
+  const tileElement = boardElement.querySelector(".tile");
+  const boardRect = boardElement.getBoundingClientRect();
+  const tileSize =
+    tileElement?.getBoundingClientRect().width ?? (boardRect.width - gap * 7) / 8;
+  const step = tileSize + gap;
+
+  return {
+    tileSize,
+    step,
+  };
+}
+
+function getCenterPixelFromTiles(tiles) {
+  if (tiles.length === 0) {
+    return { x: 0, y: 0 };
+  }
+
+  const center = tiles.reduce(
+    (sum, tile) => ({
+      row: sum.row + tile.row,
+      col: sum.col + tile.col,
+    }),
+    { row: 0, col: 0 },
+  );
+
+  const centerRow = center.row / tiles.length;
+  const centerCol = center.col / tiles.length;
+  const { tileSize, step } = getBoardMetrics();
+
+  return {
+    x: centerCol * step + tileSize / 2,
+    y: centerRow * step + tileSize / 2,
+  };
+}
+
+function clearScorePopups() {
+  if (scorePopLayerElement) {
+    scorePopLayerElement.innerHTML = "";
+  }
+}
+
+function clearHitFx() {
+  if (fxLayerElement) {
+    fxLayerElement.innerHTML = "";
+  }
+}
+
+function hideComboBanner() {
+  if (!comboBannerElement) {
+    return;
+  }
+
+  if (state.comboBannerTimer) {
+    window.clearTimeout(state.comboBannerTimer);
+    state.comboBannerTimer = null;
+  }
+
+  comboBannerElement.classList.remove("show");
+  comboBannerElement.setAttribute("aria-hidden", "true");
+}
+
+function showHitEffect(tiles, { special = false } = {}) {
+  if (!fxLayerElement || tiles.length === 0) {
+    return;
+  }
+
+  const { x, y } = getCenterPixelFromTiles(tiles);
+
+  const ring = document.createElement("div");
+  ring.className = `fx-ring${special ? " special" : ""}`;
+  ring.style.left = `${x}px`;
+  ring.style.top = `${y}px`;
+  fxLayerElement.append(ring);
+
+  const sparkCount = special ? 12 : 8;
+  for (let index = 0; index < sparkCount; index += 1) {
+    const angle = (Math.PI * 2 * index) / sparkCount;
+    const radius = (special ? 36 : 26) + Math.random() * (special ? 16 : 12);
+
+    const spark = document.createElement("div");
+    spark.className = `fx-spark${special ? " special" : ""}`;
+    spark.style.left = `${x}px`;
+    spark.style.top = `${y}px`;
+    spark.style.setProperty("--dx", `${Math.cos(angle) * radius}px`);
+    spark.style.setProperty("--dy", `${Math.sin(angle) * radius}px`);
+    fxLayerElement.append(spark);
+
+    window.setTimeout(() => spark.remove(), 520);
+  }
+
+  const shardCount = special ? 10 : 6;
+  for (let index = 0; index < shardCount; index += 1) {
+    const angle = (Math.PI * 2 * index) / shardCount;
+    const radius = (special ? 46 : 34) + Math.random() * (special ? 14 : 10);
+    const shard = document.createElement("div");
+    shard.className = `fx-shard${special ? " special" : ""}`;
+    shard.style.left = `${x}px`;
+    shard.style.top = `${y}px`;
+    shard.style.setProperty("--dx", `${Math.cos(angle) * radius}px`);
+    shard.style.setProperty("--dy", `${Math.sin(angle) * radius}px`);
+    shard.style.setProperty("--rot", `${Math.round(angle * (180 / Math.PI))}deg`);
+    fxLayerElement.append(shard);
+
+    window.setTimeout(() => shard.remove(), 620);
+  }
+
+  window.setTimeout(() => ring.remove(), 520);
+}
+
+function setModeStatus(text, statusClass = "info") {
+  if (!modeStatusElement) {
+    return;
+  }
+
+  modeStatusElement.textContent = text;
+  modeStatusElement.classList.remove("info", "success", "fail");
+  modeStatusElement.classList.add(statusClass);
+}
+
 function updateDifficultyUI() {
   const config = getDifficultyConfig();
+
   if (difficultySelectElement) {
     difficultySelectElement.value = config.key;
   }
+
   if (difficultyDescElement) {
     difficultyDescElement.textContent = `${config.desc}（每块充能 +${config.energyPerTile}）`;
   }
+}
+
+function updateModeUI() {
+  if (modeSelectElement) {
+    modeSelectElement.value = state.mode;
+  }
+
+  updateNextLevelButton();
+}
+
+function updateObjectiveDisplay() {
+  if (!targetValueElement || !movesValueElement || !levelValueElement) {
+    return;
+  }
+
+  if (isLevelMode()) {
+    targetValueElement.textContent = String(state.targetScore);
+    movesValueElement.textContent = String(state.movesLeft);
+    levelValueElement.textContent = String(state.levelIndex);
+  } else {
+    targetValueElement.textContent = "∞";
+    movesValueElement.textContent = "∞";
+    levelValueElement.textContent = "-";
+  }
+
+  updateGoalProgressDisplay();
+}
+
+function updateGoalProgressDisplay() {
+  if (!goalProgressFillElement || !goalProgressTextElement) {
+    return;
+  }
+
+  if (!isLevelMode()) {
+    goalProgressFillElement.style.width = "100%";
+    goalProgressTextElement.textContent = "无限模式：尽情冲分";
+    return;
+  }
+
+  const ratio =
+    state.targetScore > 0 ? Math.min(1, state.score.score / state.targetScore) : 0;
+  const percent = Math.round(ratio * 100);
+
+  goalProgressFillElement.style.width = `${percent}%`;
+  goalProgressTextElement.textContent = `关卡进度 ${state.score.score} / ${state.targetScore}（${percent}%）`;
+}
+
+function updateModeStatus() {
+  if (state.gameOver && isLevelMode()) {
+    if (state.gameResult === "win") {
+      setModeStatus(
+        `第 ${state.levelIndex} 关成功！已达成目标分 ${state.targetScore}，可进入下一关。`,
+        "success",
+      );
+      return;
+    }
+
+    setModeStatus(
+      `第 ${state.levelIndex} 关失败：步数已用尽，得分 ${state.score.score} / 目标 ${state.targetScore}。`,
+      "fail",
+    );
+    return;
+  }
+
+  if (isLevelMode()) {
+    setModeStatus(
+      `第 ${state.levelIndex} 关进行中：目标分 ${state.targetScore}，剩余步数 ${state.movesLeft}。`,
+      "info",
+    );
+    return;
+  }
+
+  setModeStatus(getModeConfig().status, "info");
+}
+
+function updateNextLevelButton() {
+  if (!nextLevelButtonElement) {
+    return;
+  }
+
+  const visible = isLevelMode();
+  nextLevelButtonElement.hidden = !visible;
+
+  if (!visible) {
+    return;
+  }
+
+  const canAdvance = state.gameOver && state.gameResult === "win";
+  nextLevelButtonElement.disabled = !canAdvance;
+  nextLevelButtonElement.classList.toggle("ready-next", canAdvance);
+  nextLevelButtonElement.textContent = canAdvance
+    ? `下一关（第 ${state.levelIndex + 1} 关）`
+    : "下一关";
+}
+
+function openTutorial() {
+  if (!tutorialOverlayElement) {
+    return;
+  }
+
+  if (tutorialHideToggleElement) {
+    tutorialHideToggleElement.checked = false;
+  }
+
+  state.tutorialOpen = true;
+  tutorialOverlayElement.classList.remove("hidden");
+  tutorialOverlayElement.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  updateEnergyBars();
+}
+
+function closeTutorial() {
+  if (!tutorialOverlayElement) {
+    return;
+  }
+
+  if (tutorialHideToggleElement?.checked) {
+    setTutorialSeen();
+  }
+
+  state.tutorialOpen = false;
+  tutorialOverlayElement.classList.add("hidden");
+  tutorialOverlayElement.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+  updateEnergyBars();
 }
 
 function setCharacterCasting(characterId, isCasting) {
@@ -221,20 +755,132 @@ async function animateInvalidSwap(first, second) {
   }
 }
 
+function ensureBoardNoInstantMatches() {
+  while (findMatches(state.board).length > 0) {
+    const matches = findMatches(state.board);
+    removeMatches(state.board, matches);
+    applyGravity(state.board);
+    spawnTiles(state.board, {
+      antiComboLevel: getDifficultyConfig().antiComboLevel,
+    });
+  }
+}
+
+function rebuildPlayableBoard() {
+  let attempts = 0;
+
+  do {
+    state.board = generateBoard();
+    ensureBoardNoInstantMatches();
+    attempts += 1;
+  } while (!hasPossibleMoves(state.board) && attempts < 120);
+}
+
 async function collapseAndRender() {
   applyGravity(state.board);
   spawnTiles(state.board, {
     antiComboLevel: getDifficultyConfig().antiComboLevel,
   });
-  renderBoard({ animateMovement: true });
+  renderBoard({ animateMovement: true, motion: "fall" });
   await wait(ANIMATION_MS.fall);
+}
+
+async function reshuffleBoard() {
+  if (state.gameOver) {
+    return;
+  }
+
+  setModeStatus("没有可交换组合，正在洗牌...", "info");
+  playReshuffleSfx();
+  boardElement.classList.add("reshuffling");
+  await wait(ANIMATION_MS.reshuffle);
+  boardElement.classList.remove("reshuffling");
+
+  rebuildPlayableBoard();
+  state.previousTilePositions = new Map();
+  clearScorePopups();
+  clearHitFx();
+  hideComboBanner();
+  renderBoard({ animateMovement: true, motion: "fall" });
+
+  const allTiles = state.board.flat().filter(Boolean);
+  showHitEffect(allTiles, { special: true });
+  await wait(ANIMATION_MS.fall);
+  updateModeStatus();
+}
+
+async function resolveDeadlockIfNeeded() {
+  if (state.gameOver) {
+    return;
+  }
+
+  if (hasPossibleMoves(state.board)) {
+    return;
+  }
+
+  await reshuffleBoard();
 }
 
 function findFirstReadyCharacter() {
   return state.characters.find((character) => character.skillReady);
 }
 
-export function renderBoard({ animateMovement = false } = {}) {
+function initializeModeState() {
+  if (isLevelMode()) {
+    const target = getLevelTarget();
+    state.movesLeft = target.moves;
+    state.targetScore = target.targetScore;
+  } else {
+    state.movesLeft = null;
+    state.targetScore = null;
+  }
+
+  state.gameOver = false;
+  state.gameResult = null;
+}
+
+function evaluateLevelProgress() {
+  if (!isLevelMode()) {
+    state.gameOver = false;
+    state.gameResult = null;
+    updateObjectiveDisplay();
+    updateModeStatus();
+    updateNextLevelButton();
+    return;
+  }
+
+  const previousResult = state.gameResult;
+
+  if (state.score.score >= state.targetScore) {
+    state.gameOver = true;
+    state.gameResult = "win";
+  } else if (state.movesLeft <= 0) {
+    state.gameOver = true;
+    state.gameResult = "lose";
+  } else {
+    state.gameOver = false;
+    state.gameResult = null;
+  }
+
+  if (state.gameResult && previousResult !== state.gameResult) {
+    playModeResultSfx(state.gameResult === "win");
+  }
+
+  updateObjectiveDisplay();
+  updateModeStatus();
+  updateNextLevelButton();
+}
+
+function consumeMoveIfNeeded() {
+  if (!isLevelMode() || state.gameOver) {
+    return;
+  }
+
+  state.movesLeft = Math.max(0, state.movesLeft - 1);
+  updateObjectiveDisplay();
+}
+
+export function renderBoard({ animateMovement = false, motion = "fall" } = {}) {
   boardElement.innerHTML = "";
 
   const currentPositions = new Map();
@@ -247,17 +893,19 @@ export function renderBoard({ animateMovement = false } = {}) {
       }
 
       const button = document.createElement("button");
+      const tileVisual = TILE_VISUALS[tile.type] ?? { icon: tile.type, name: tile.type };
       const isSelected =
         state.selectedTile &&
         positionEquals(state.selectedTile, { row: tile.row, col: tile.col });
 
       button.type = "button";
       button.className = tileClassName(tile.type);
-      button.textContent = tile.type;
+      button.innerHTML = `<span class="tile-icon" aria-hidden="true">${tileVisual.icon}</span>`;
       button.dataset.row = String(tile.row);
       button.dataset.col = String(tile.col);
       button.dataset.tileId = String(tile.id);
-      button.ariaLabel = `方块 ${tile.type}，第 ${tile.row + 1} 行，第 ${tile.col + 1} 列`;
+      button.dataset.type = tile.type;
+      button.ariaLabel = `${tileVisual.name}水果，第 ${tile.row + 1} 行，第 ${tile.col + 1} 列`;
 
       if (isSelected) {
         button.classList.add("selected");
@@ -274,6 +922,9 @@ export function renderBoard({ animateMovement = false } = {}) {
       ? firstTileElement.getBoundingClientRect().height
       : 0;
     const step = tileSize + getBoardGapPx();
+    const isSwapMotion = motion === "swap";
+    const duration = isSwapMotion ? ANIMATION_MS.swap : ANIMATION_MS.fall;
+    const easing = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 
     for (const button of boardElement.querySelectorAll(".tile")) {
       const tileId = Number(button.dataset.tileId);
@@ -293,14 +944,16 @@ export function renderBoard({ animateMovement = false } = {}) {
         continue;
       }
 
+      const keyframes = [
+        { transform: `translate(${deltaX}px, ${deltaY}px)` },
+        { transform: "translate(0, 0)" },
+      ];
+
       button.animate(
-        [
-          { transform: `translate(${deltaX}px, ${deltaY}px)` },
-          { transform: "translate(0, 0)" },
-        ],
+        keyframes,
         {
-          duration: ANIMATION_MS.fall,
-          easing: "cubic-bezier(0.2, 0.9, 0.2, 1)",
+          duration,
+          easing,
         },
       );
     }
@@ -313,13 +966,24 @@ export function renderCharacters() {
   charactersElement.innerHTML = "";
 
   for (const character of state.characters) {
+    const characterVisual = CHARACTER_VISUALS[character.id] ?? {
+      icon: String(character.id),
+      role: "技能施放者",
+      chargeIcon: "🍓",
+      chargeName: "草莓",
+    };
     const card = document.createElement("article");
     card.className = "character-card";
     card.dataset.characterId = String(character.id);
     card.innerHTML = `
-      <div class="avatar" aria-hidden="true">${character.id}</div>
+      <div class="avatar" aria-hidden="true">${characterVisual.icon}</div>
       <div>
         <h2 class="character-name">${character.name}</h2>
+        <p class="character-role">${characterVisual.role}</p>
+        <p class="charge-source">
+          <span class="charge-icon">${characterVisual.chargeIcon}</span>
+          充能来源：${characterVisual.chargeName}消除
+        </p>
         <div class="energy-wrap">
           <div class="energy-bar">
             <div class="energy-fill" data-energy-fill="${character.id}"></div>
@@ -367,7 +1031,12 @@ export function updateEnergyBars() {
     }
     if (button) {
       const ready = character.skillReady;
-      button.disabled = !ready || state.isProcessing;
+      const blocked =
+        state.isProcessing ||
+        state.autoSkillRunning ||
+        state.gameOver ||
+        state.tutorialOpen;
+      button.disabled = !ready || blocked;
       button.classList.toggle("ready", ready);
     }
     if (card) {
@@ -377,8 +1046,13 @@ export function updateEnergyBars() {
 }
 
 export function updateScoreDisplay() {
-  scoreValueElement.textContent = String(state.score.score);
-  comboValueElement.textContent = String(state.score.combo);
+  if (scoreValueElement) {
+    scoreValueElement.textContent = String(state.score.score);
+  }
+  if (comboValueElement) {
+    comboValueElement.textContent = String(state.score.combo);
+  }
+  updateGoalProgressDisplay();
 }
 
 export function updateEnergy(removedTiles, options = {}) {
@@ -395,37 +1069,12 @@ export function updateScore(removedTileCount, comboLevel) {
   return gained;
 }
 
-function clearScorePopups() {
-  if (!scorePopLayerElement) {
-    return;
-  }
-  scorePopLayerElement.innerHTML = "";
-}
-
 function showScorePopup(removedTiles, gainedScore, comboLevel, { tag = "" } = {}) {
   if (!scorePopLayerElement || removedTiles.length === 0 || gainedScore <= 0) {
     return;
   }
 
-  const center = removedTiles.reduce(
-    (sum, tile) => ({
-      row: sum.row + tile.row,
-      col: sum.col + tile.col,
-    }),
-    { row: 0, col: 0 },
-  );
-  const centerRow = center.row / removedTiles.length;
-  const centerCol = center.col / removedTiles.length;
-
-  const tileElement = boardElement.querySelector(".tile");
-  const gap = getBoardGapPx();
-  const tileSize =
-    tileElement?.getBoundingClientRect().width ??
-    (boardElement.getBoundingClientRect().width - gap * 7) / 8;
-  const step = tileSize + gap;
-
-  const x = centerCol * step + tileSize / 2;
-  const y = centerRow * step + tileSize / 2;
+  const { x, y } = getCenterPixelFromTiles(removedTiles);
   const multiplier = getComboMultiplier(comboLevel);
   const multiplierText = comboLevel > 1 ? ` x${multiplier}` : "";
 
@@ -439,7 +1088,31 @@ function showScorePopup(removedTiles, gainedScore, comboLevel, { tag = "" } = {}
   popup.textContent = `${tag ? `${tag} ` : ""}+${gainedScore}${multiplierText}`;
 
   scorePopLayerElement.append(popup);
-  window.setTimeout(() => popup.remove(), 950);
+  window.setTimeout(() => popup.remove(), 680);
+}
+
+function showComboBanner(comboLevel, gainedScore = 0) {
+  if (!comboBannerElement || comboLevel < 2) {
+    return;
+  }
+
+  const multiplier = getComboMultiplier(comboLevel);
+  const comboText = comboLevel >= 3 ? `${comboLevel} 连击!` : "双连击!";
+  const scoreText = gainedScore > 0 ? ` +${gainedScore}` : "";
+  comboBannerElement.textContent = `${comboText} x${multiplier}${scoreText}`;
+  comboBannerElement.setAttribute("aria-hidden", "false");
+
+  comboBannerElement.classList.remove("show");
+  void comboBannerElement.offsetWidth;
+  comboBannerElement.classList.add("show");
+
+  if (state.comboBannerTimer) {
+    window.clearTimeout(state.comboBannerTimer);
+  }
+
+  state.comboBannerTimer = window.setTimeout(() => {
+    hideComboBanner();
+  }, 560);
 }
 
 export async function processTurn(initialRemovedTiles = null, options = {}) {
@@ -450,6 +1123,8 @@ export async function processTurn(initialRemovedTiles = null, options = {}) {
     await animateRemoval(initialRemovedTiles);
     const gained = updateScore(initialRemovedTiles.length, comboLevel);
     showScorePopup(initialRemovedTiles, gained, comboLevel);
+    showHitEffect(initialRemovedTiles);
+    playHitSfx(initialRemovedTiles.length, comboLevel);
     updateEnergy(initialRemovedTiles, options);
     await collapseAndRender();
   }
@@ -465,11 +1140,15 @@ export async function processTurn(initialRemovedTiles = null, options = {}) {
     const matchedTiles = matches
       .map(({ row, col }) => state.board[row][col])
       .filter(Boolean);
+
     await animateRemoval(matches);
 
     const removedTiles = removeMatches(state.board, matches);
     const regularGained = updateScore(removedTiles.length, comboLevel);
+    let chainGained = regularGained;
     showScorePopup(matchedTiles, regularGained, comboLevel);
+    showHitEffect(removedTiles, { special: false });
+    playHitSfx(removedTiles.length, comboLevel);
 
     if (longMatchTypes.size > 0) {
       const bonusTargets = collectTilesByTypes(longMatchTypes);
@@ -479,10 +1158,17 @@ export async function processTurn(initialRemovedTiles = null, options = {}) {
 
       if (bonusRemoved.length > 0) {
         const bonusGained = updateScore(bonusRemoved.length, comboLevel);
+        chainGained += bonusGained;
         showScorePopup(bonusRemoved, bonusGained, comboLevel, {
           tag: "同色清场",
         });
+        showHitEffect(bonusRemoved, { special: true });
+        playHitSfx(bonusRemoved.length, comboLevel, { special: true });
       }
+    }
+
+    if (comboLevel >= 2) {
+      showComboBanner(comboLevel, chainGained);
     }
 
     updateEnergy(removedTiles);
@@ -492,12 +1178,17 @@ export async function processTurn(initialRemovedTiles = null, options = {}) {
   if (comboLevel === 0) {
     resetCombo(state.score);
     updateScoreDisplay();
+    hideComboBanner();
   }
 
   return comboLevel > 0;
 }
 
 async function executeSkill(characterId) {
+  if (state.gameOver) {
+    return false;
+  }
+
   const character = getCharacterById(state.characters, characterId);
   if (!character || !character.skillReady) {
     return false;
@@ -509,19 +1200,23 @@ async function executeSkill(characterId) {
   updateEnergyBars();
 
   await wait(ANIMATION_MS.skillWindup);
+  playSkillSfx(characterId);
 
-  // Requirement: skill usage resets the owner's energy immediately.
   resetCharacterEnergy(state.characters, characterId);
   updateEnergyBars();
 
   const removedTiles = activateSkill(characterId, state.board);
 
   if (removedTiles.length > 0) {
+    showHitEffect(removedTiles, { special: true });
     await processTurn(removedTiles, { skipCharacterId: characterId });
   } else {
     resetCombo(state.score);
     updateScoreDisplay();
+    hideComboBanner();
   }
+
+  await resolveDeadlockIfNeeded();
 
   setCharacterCasting(characterId, false);
   state.isProcessing = false;
@@ -531,11 +1226,12 @@ async function executeSkill(characterId) {
 }
 
 async function resolveAutoSkills() {
-  if (state.autoSkillRunning) {
+  if (state.autoSkillRunning || state.gameOver) {
     return;
   }
 
   state.autoSkillRunning = true;
+  updateEnergyBars();
 
   try {
     while (true) {
@@ -548,11 +1244,17 @@ async function resolveAutoSkills() {
     }
   } finally {
     state.autoSkillRunning = false;
+    updateEnergyBars();
   }
 }
 
 async function handleTileSelection(position) {
-  if (state.isProcessing) {
+  if (
+    state.isProcessing ||
+    state.autoSkillRunning ||
+    state.gameOver ||
+    state.tutorialOpen
+  ) {
     return;
   }
 
@@ -579,35 +1281,53 @@ async function handleTileSelection(position) {
 
   swapTiles(state.board, first, second);
   state.selectedTile = null;
-  renderBoard({ animateMovement: true });
+  renderBoard({ animateMovement: true, motion: "swap" });
   await wait(ANIMATION_MS.swap);
 
   const hasMatch = findMatches(state.board).length > 0;
 
   if (!hasMatch) {
     swapTiles(state.board, first, second);
-    renderBoard({ animateMovement: true });
+    renderBoard({ animateMovement: true, motion: "swap" });
     await wait(ANIMATION_MS.swap);
     await animateInvalidSwap(first, second);
 
+    playSwapSfx(false);
     resetCombo(state.score);
     updateScoreDisplay();
+    hideComboBanner();
 
     state.isProcessing = false;
     updateEnergyBars();
     return;
   }
 
+  playSwapSfx(true);
+  consumeMoveIfNeeded();
   await processTurn();
+  await resolveDeadlockIfNeeded();
 
+  const reachedTargetBeforeAuto =
+    isLevelMode() && state.score.score >= state.targetScore;
+
+  if (!reachedTargetBeforeAuto) {
+    await resolveAutoSkills();
+    await resolveDeadlockIfNeeded();
+  }
+
+  evaluateLevelProgress();
   state.isProcessing = false;
   updateEnergyBars();
-
-  await resolveAutoSkills();
+  updateModeStatus();
 }
 
 function handleBoardClick(event) {
-  if (state.isProcessing) {
+  if (
+    state.isProcessing ||
+    state.autoSkillRunning ||
+    state.gameOver ||
+    state.tutorialOpen
+  ) {
     return;
   }
 
@@ -616,15 +1336,22 @@ function handleBoardClick(event) {
     return;
   }
 
+  void unlockAudio();
+
   const row = Number(tileButton.dataset.row);
   const col = Number(tileButton.dataset.col);
-
   void handleTileSelection({ row, col });
 }
 
 function handleSkillClick(event) {
   const skillButton = event.target.closest(".skill-button");
-  if (!skillButton || state.isProcessing) {
+  if (
+    !skillButton ||
+    state.isProcessing ||
+    state.autoSkillRunning ||
+    state.gameOver ||
+    state.tutorialOpen
+  ) {
     return;
   }
 
@@ -635,43 +1362,47 @@ function handleSkillClick(event) {
     return;
   }
 
+  void unlockAudio();
+
   void (async () => {
     await executeSkill(characterId);
     await resolveAutoSkills();
+    await resolveDeadlockIfNeeded();
+    evaluateLevelProgress();
   })();
 }
 
-function initializeBoardWithoutMatches() {
-  // Keep rerolling until initial board is stable.
-  while (findMatches(state.board).length > 0) {
-    const matches = findMatches(state.board);
-    removeMatches(state.board, matches);
-    applyGravity(state.board);
-    spawnTiles(state.board, {
-      antiComboLevel: getDifficultyConfig().antiComboLevel,
-    });
+function resetGame({ keepLevel = false } = {}) {
+  if (!keepLevel || !isLevelMode()) {
+    state.levelIndex = 1;
   }
-}
 
-function resetGame() {
-  state.board = generateBoard();
   state.characters = createCharacters();
   state.score = createScoreState();
   state.selectedTile = null;
   state.isProcessing = false;
   state.autoSkillRunning = false;
   state.previousTilePositions = new Map();
+  initializeModeState();
 
   clearScorePopups();
-  initializeBoardWithoutMatches();
+  clearHitFx();
+  hideComboBanner();
+  rebuildPlayableBoard();
+
   renderCharacters();
   renderBoard();
   updateScoreDisplay();
   updateDifficultyUI();
+  updateModeUI();
+  updateObjectiveDisplay();
+  updateModeStatus();
+  updateNextLevelButton();
+  updateSoundButton();
 }
 
 function handleDifficultyChange(event) {
-  if (state.isProcessing) {
+  if (state.isProcessing || state.autoSkillRunning) {
     updateDifficultyUI();
     return;
   }
@@ -686,22 +1417,96 @@ function handleDifficultyChange(event) {
   resetGame();
 }
 
+function handleModeChange(event) {
+  if (state.isProcessing || state.autoSkillRunning) {
+    updateModeUI();
+    return;
+  }
+
+  const selected = event.target.value;
+  if (!MODE_CONFIGS[selected]) {
+    updateModeUI();
+    return;
+  }
+
+  state.mode = selected;
+  resetGame();
+}
+
 function handleRestartClick() {
-  if (state.isProcessing) {
+  if (state.isProcessing || state.autoSkillRunning) {
     return;
   }
 
   resetGame();
 }
 
+function handleNextLevelClick() {
+  if (
+    !isLevelMode() ||
+    state.isProcessing ||
+    state.autoSkillRunning ||
+    !state.gameOver ||
+    state.gameResult !== "win"
+  ) {
+    return;
+  }
+
+  state.levelIndex += 1;
+  resetGame({ keepLevel: true });
+  setModeStatus(`已进入第 ${state.levelIndex} 关，继续挑战！`, "info");
+}
+
+async function handleSoundToggle() {
+  state.audioEnabled = !state.audioEnabled;
+  updateSoundButton();
+
+  if (state.audioEnabled) {
+    await unlockAudio();
+    playTone({ frequency: 560, duration: 0.06, gainValue: 0.02 });
+  }
+}
+
+function handleTutorialButtonClick() {
+  openTutorial();
+}
+
+function handleTutorialCloseClick() {
+  closeTutorial();
+}
+
+function handleGlobalKeydown(event) {
+  if (event.key === "Escape" && state.tutorialOpen) {
+    closeTutorial();
+  }
+}
+
+function handleTutorialOverlayClick(event) {
+  if (event.target === tutorialOverlayElement) {
+    closeTutorial();
+  }
+}
+
 function initializeGame() {
-  updateDifficultyUI();
   resetGame();
 
   boardElement.addEventListener("click", handleBoardClick);
   charactersElement.addEventListener("click", handleSkillClick);
   difficultySelectElement?.addEventListener("change", handleDifficultyChange);
+  modeSelectElement?.addEventListener("change", handleModeChange);
   restartButtonElement?.addEventListener("click", handleRestartClick);
+  nextLevelButtonElement?.addEventListener("click", handleNextLevelClick);
+  soundButtonElement?.addEventListener("click", () => {
+    void handleSoundToggle();
+  });
+  tutorialButtonElement?.addEventListener("click", handleTutorialButtonClick);
+  tutorialCloseButtonElement?.addEventListener("click", handleTutorialCloseClick);
+  tutorialOverlayElement?.addEventListener("click", handleTutorialOverlayClick);
+  window.addEventListener("keydown", handleGlobalKeydown);
+
+  if (shouldAutoShowTutorial()) {
+    openTutorial();
+  }
 }
 
 initializeGame();
