@@ -399,6 +399,4 @@ This is still a prototype. It does not yet include:
 ---
 
 ## License
-
-Prototype/demo project for learning and iteration.  
-You can add your own license policy if needed.
+This project is licensed under the Apache License 2.0.  
