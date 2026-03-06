@@ -441,6 +441,4 @@ This is still a prototype. It does not yet include:
 ---
 
 ## License
-
 This project is licensed under the Apache License 2.0.  
-请查看 [LICENSE](/Users/lappland/Match-3-Game/LICENSE) 文件获取完整条款。
