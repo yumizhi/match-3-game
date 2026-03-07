@@ -1,4 +1,5 @@
 import {
+  BOARD_SIZE,
   applyGravity,
   areAdjacent,
   findMatches,
@@ -25,22 +26,66 @@ import {
 } from "./score.js";
 
 const ANIMATION_MS = {
-  swap: 200,
-  remove: 180,
-  specialRemove: 210,
-  fall: 300,
-  skillWindup: 180,
-  invalidSwap: 220,
-  reshuffle: 440,
+  swap: 170,
+  remove: 130,
+  specialRemove: 170,
+  fall: 230,
+  skillWindup: 150,
+  invalidSwap: 190,
+  reshuffle: 360,
 };
 
 const TUTORIAL_STORAGE_KEY = "match3_tutorial_seen_v1";
+const HIT_FX_MAX_NODES = 70;
+
+const HIT_FX_PRESETS = {
+  normal: {
+    ringClassName: "fx-ring",
+    sparkCount: 3,
+    shardCount: 0,
+    sparkRadius: 20,
+    shardRadius: 0,
+    durationMs: 380,
+  },
+  combo: {
+    ringClassName: "fx-ring",
+    sparkCount: 5,
+    shardCount: 1,
+    sparkRadius: 24,
+    shardRadius: 26,
+    durationMs: 430,
+  },
+  special: {
+    ringClassName: "fx-ring special",
+    sparkCount: 8,
+    shardCount: 4,
+    sparkRadius: 32,
+    shardRadius: 38,
+    durationMs: 540,
+  },
+  skill: {
+    ringClassName: "fx-ring special",
+    sparkCount: 10,
+    shardCount: 5,
+    sparkRadius: 36,
+    shardRadius: 42,
+    durationMs: 620,
+  },
+  reshuffle: {
+    ringClassName: "fx-ring special",
+    sparkCount: 12,
+    shardCount: 6,
+    sparkRadius: 48,
+    shardRadius: 56,
+    durationMs: 700,
+  },
+};
 
 const TILE_VISUALS = {
-  A: { icon: "🍓", name: "草莓" },
-  B: { icon: "🍉", name: "西瓜" },
-  C: { icon: "🍇", name: "葡萄" },
-  D: { icon: "🍋", name: "柠檬" },
+  A: { name: "草莓" },
+  B: { name: "西瓜" },
+  C: { name: "葡萄" },
+  D: { name: "柠檬" },
 };
 
 const CHARACTER_VISUALS = {
@@ -56,21 +101,21 @@ const DIFFICULTY_CONFIGS = {
     label: "轻松",
     energyPerTile: 5,
     antiComboLevel: 0,
-    desc: "充能更快，随机连锁更多。",
+    desc: "节奏更轻松，技能更容易触发。",
   },
   normal: {
     key: "normal",
     label: "标准",
     energyPerTile: 3,
     antiComboLevel: 1,
-    desc: "充能与连锁平衡。",
+    desc: "节奏均衡，适合稳定冲分。",
   },
   hard: {
     key: "hard",
     label: "困难",
     energyPerTile: 1,
     antiComboLevel: 2,
-    desc: "充能更慢，随机连锁较少。",
+    desc: "更考验规划，每一步都更关键。",
   },
 };
 
@@ -78,12 +123,12 @@ const MODE_CONFIGS = {
   endless: {
     key: "endless",
     label: "无限模式",
-    status: "无限模式：没有步数限制，尽可能冲击更高分。",
+    status: "无限模式：放开连消，尽情冲分。",
   },
   level: {
     key: "level",
     label: "关卡模式",
-    status: "关卡模式：在限定步数内达到目标分。",
+    status: "关卡模式：在步数耗尽前拿下目标分。",
   },
 };
 
@@ -124,6 +169,7 @@ const tutorialCloseButtonElement = document.getElementById(
   "tutorial-close-button",
 );
 const tutorialHideToggleElement = document.getElementById("tutorial-hide-toggle");
+const hintElement = document.querySelector(".hint");
 
 const state = {
   difficulty: "normal",
@@ -144,6 +190,12 @@ const state = {
   audioContext: null,
   tutorialOpen: false,
   comboBannerTimer: null,
+  hintTimer: null,
+  transientHint: "",
+  firstMoveGuide: shouldAutoShowTutorial(),
+  openingHintTiles: [],
+  hasSwappedOnce: false,
+  skillHintShown: false,
 };
 
 function wait(ms) {
@@ -175,6 +227,97 @@ function getDifficultyConfig() {
 
 function getModeConfig() {
   return MODE_CONFIGS[state.mode] ?? MODE_CONFIGS.endless;
+}
+
+function updateModeBodyClass() {
+  document.body.classList.toggle("mode-level", isLevelMode());
+  document.body.classList.toggle("mode-endless", !isLevelMode());
+}
+
+function getDefaultHintText() {
+  if (isLevelMode()) {
+    return "优先做稳妥连消，别让步数先耗尽。";
+  }
+  return "交换相邻水果，凑出 3 连就能消除。";
+}
+
+function updateHintText() {
+  if (!hintElement) {
+    return;
+  }
+
+  if (state.transientHint) {
+    hintElement.textContent = state.transientHint;
+    return;
+  }
+
+  if (
+    state.firstMoveGuide &&
+    !state.hasSwappedOnce &&
+    !state.tutorialOpen &&
+    state.openingHintTiles.length > 0
+  ) {
+    hintElement.textContent = "先试试发光的两格，快速完成第一步。";
+    return;
+  }
+
+  hintElement.textContent = getDefaultHintText();
+}
+
+function showTransientHint(text, durationMs = 2000) {
+  state.transientHint = text;
+  updateHintText();
+
+  if (state.hintTimer) {
+    window.clearTimeout(state.hintTimer);
+  }
+
+  state.hintTimer = window.setTimeout(() => {
+    state.transientHint = "";
+    state.hintTimer = null;
+    updateHintText();
+  }, durationMs);
+}
+
+function findSuggestedSwapPair() {
+  for (let row = 0; row < BOARD_SIZE; row += 1) {
+    for (let col = 0; col < BOARD_SIZE; col += 1) {
+      const tile = state.board[row][col];
+      if (!tile) {
+        continue;
+      }
+
+      const neighbors = [
+        { row, col: col + 1 },
+        { row: row + 1, col },
+      ];
+
+      for (const neighbor of neighbors) {
+        if (
+          neighbor.row < 0 ||
+          neighbor.row >= BOARD_SIZE ||
+          neighbor.col < 0 ||
+          neighbor.col >= BOARD_SIZE ||
+          !state.board[neighbor.row][neighbor.col]
+        ) {
+          continue;
+        }
+
+        const first = { row, col };
+        const second = { row: neighbor.row, col: neighbor.col };
+
+        swapTiles(state.board, first, second);
+        const canMatch = findMatches(state.board).length > 0;
+        swapTiles(state.board, first, second);
+
+        if (canMatch) {
+          return [first, second];
+        }
+      }
+    }
+  }
+
+  return [];
 }
 
 function getLevelTarget() {
@@ -448,41 +591,63 @@ function hideComboBanner() {
   comboBannerElement.setAttribute("aria-hidden", "true");
 }
 
-function showHitEffect(tiles, { special = false } = {}) {
+function trimFxNodesIfNeeded(limit = HIT_FX_MAX_NODES) {
+  if (!fxLayerElement) {
+    return;
+  }
+
+  while (fxLayerElement.childElementCount > limit) {
+    fxLayerElement.firstElementChild?.remove();
+  }
+}
+
+function showHitEffect(tiles, { tier = "normal" } = {}) {
   if (!fxLayerElement || tiles.length === 0) {
     return;
   }
 
+  const preset = HIT_FX_PRESETS[tier] ?? HIT_FX_PRESETS.normal;
   const { x, y } = getCenterPixelFromTiles(tiles);
+  const tileCount = tiles.length;
+  let intensity = 1;
+  if (tileCount >= 16) {
+    intensity = 1.35;
+  } else if (tileCount >= 10) {
+    intensity = 1.15;
+  } else if (tileCount <= 3) {
+    intensity = 0.95;
+  }
 
   const ring = document.createElement("div");
-  ring.className = `fx-ring${special ? " special" : ""}`;
+  ring.className = preset.ringClassName;
   ring.style.left = `${x}px`;
   ring.style.top = `${y}px`;
   fxLayerElement.append(ring);
 
-  const sparkCount = special ? 12 : 8;
+  const sparkClass = tier === "normal" || tier === "combo" ? "fx-spark" : "fx-spark special";
+  const sparkCount = Math.max(1, Math.round(preset.sparkCount * intensity));
   for (let index = 0; index < sparkCount; index += 1) {
     const angle = (Math.PI * 2 * index) / sparkCount;
-    const radius = (special ? 36 : 26) + Math.random() * (special ? 16 : 12);
+    const radius = preset.sparkRadius + Math.random() * (tier === "normal" ? 8 : 14);
 
     const spark = document.createElement("div");
-    spark.className = `fx-spark${special ? " special" : ""}`;
+    spark.className = sparkClass;
     spark.style.left = `${x}px`;
     spark.style.top = `${y}px`;
     spark.style.setProperty("--dx", `${Math.cos(angle) * radius}px`);
     spark.style.setProperty("--dy", `${Math.sin(angle) * radius}px`);
     fxLayerElement.append(spark);
 
-    window.setTimeout(() => spark.remove(), 520);
+    window.setTimeout(() => spark.remove(), preset.durationMs);
   }
 
-  const shardCount = special ? 10 : 6;
+  const shardClass = tier === "normal" || tier === "combo" ? "fx-shard" : "fx-shard special";
+  const shardCount = Math.max(0, Math.round(preset.shardCount * intensity));
   for (let index = 0; index < shardCount; index += 1) {
     const angle = (Math.PI * 2 * index) / shardCount;
-    const radius = (special ? 46 : 34) + Math.random() * (special ? 14 : 10);
+    const radius = preset.shardRadius + Math.random() * 12;
     const shard = document.createElement("div");
-    shard.className = `fx-shard${special ? " special" : ""}`;
+    shard.className = shardClass;
     shard.style.left = `${x}px`;
     shard.style.top = `${y}px`;
     shard.style.setProperty("--dx", `${Math.cos(angle) * radius}px`);
@@ -490,10 +655,11 @@ function showHitEffect(tiles, { special = false } = {}) {
     shard.style.setProperty("--rot", `${Math.round(angle * (180 / Math.PI))}deg`);
     fxLayerElement.append(shard);
 
-    window.setTimeout(() => shard.remove(), 620);
+    window.setTimeout(() => shard.remove(), preset.durationMs + 120);
   }
 
-  window.setTimeout(() => ring.remove(), 520);
+  window.setTimeout(() => ring.remove(), preset.durationMs);
+  trimFxNodesIfNeeded();
 }
 
 function setModeStatus(text, statusClass = "info") {
@@ -514,7 +680,7 @@ function updateDifficultyUI() {
   }
 
   if (difficultyDescElement) {
-    difficultyDescElement.textContent = `${config.desc}（每块充能 +${config.energyPerTile}）`;
+    difficultyDescElement.textContent = config.desc;
   }
 }
 
@@ -523,6 +689,8 @@ function updateModeUI() {
     modeSelectElement.value = state.mode;
   }
 
+  updateModeBodyClass();
+  updateHintText();
   updateNextLevelButton();
 }
 
@@ -551,7 +719,7 @@ function updateGoalProgressDisplay() {
 
   if (!isLevelMode()) {
     goalProgressFillElement.style.width = "100%";
-    goalProgressTextElement.textContent = "无限模式：尽情冲分";
+    goalProgressTextElement.textContent = "无限冲分";
     return;
   }
 
@@ -560,29 +728,30 @@ function updateGoalProgressDisplay() {
   const percent = Math.round(ratio * 100);
 
   goalProgressFillElement.style.width = `${percent}%`;
-  goalProgressTextElement.textContent = `关卡进度 ${state.score.score} / ${state.targetScore}（${percent}%）`;
+  goalProgressTextElement.textContent = `进度 ${state.score.score} / ${state.targetScore}（${percent}%）`;
 }
 
 function updateModeStatus() {
   if (state.gameOver && isLevelMode()) {
     if (state.gameResult === "win") {
       setModeStatus(
-        `第 ${state.levelIndex} 关成功！已达成目标分 ${state.targetScore}，可进入下一关。`,
+        `第 ${state.levelIndex} 关通关！准备进入下一关。`,
         "success",
       );
       return;
     }
 
     setModeStatus(
-      `第 ${state.levelIndex} 关失败：步数已用尽，得分 ${state.score.score} / 目标 ${state.targetScore}。`,
+      `第 ${state.levelIndex} 关未达成，得分 ${state.score.score} / ${state.targetScore}。`,
       "fail",
     );
     return;
   }
 
   if (isLevelMode()) {
+    const scoreGap = Math.max(0, state.targetScore - state.score.score);
     setModeStatus(
-      `第 ${state.levelIndex} 关进行中：目标分 ${state.targetScore}，剩余步数 ${state.movesLeft}。`,
+      `第 ${state.levelIndex} 关：还差 ${scoreGap} 分，剩余 ${state.movesLeft} 步。`,
       "info",
     );
     return;
@@ -625,6 +794,7 @@ function openTutorial() {
   tutorialOverlayElement.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
   updateEnergyBars();
+  updateHintText();
 }
 
 function closeTutorial() {
@@ -634,6 +804,9 @@ function closeTutorial() {
 
   if (tutorialHideToggleElement?.checked) {
     setTutorialSeen();
+    state.firstMoveGuide = false;
+    state.openingHintTiles = [];
+    renderBoard();
   }
 
   state.tutorialOpen = false;
@@ -641,6 +814,7 @@ function closeTutorial() {
   tutorialOverlayElement.setAttribute("aria-hidden", "true");
   document.body.classList.remove("modal-open");
   updateEnergyBars();
+  updateHintText();
 }
 
 function setCharacterCasting(characterId, isCasting) {
@@ -664,6 +838,12 @@ function clearSelection() {
   renderBoard();
 }
 
+function isOpeningHintTile(row, col) {
+  return state.openingHintTiles.some(
+    (position) => position.row === row && position.col === col,
+  );
+}
+
 function createPositionList(entries) {
   const unique = new Map();
 
@@ -677,15 +857,38 @@ function createPositionList(entries) {
   return Array.from(unique.values());
 }
 
-function addRemovalClass(positions, className) {
+function addRemovalClass(positions, className, { duration }) {
+  const isMassRemoval = positions.length >= 10;
+  const center = positions.reduce(
+    (sum, position) => ({
+      row: sum.row + position.row,
+      col: sum.col + position.col,
+    }),
+    { row: 0, col: 0 },
+  );
+  const centerRow = center.row / positions.length;
+  const centerCol = center.col / positions.length;
+  let maxDelay = 0;
+
   for (const { row, col } of positions) {
     const tileElement = boardElement.querySelector(
       `.tile[data-row="${row}"][data-col="${col}"]`,
     );
     if (tileElement) {
+      let delayMs = 0;
+      if (isMassRemoval) {
+        const distance = Math.hypot(row - centerRow, col - centerCol);
+        delayMs = Math.min(55, Math.round(distance * 12));
+        tileElement.classList.add("mass-removing");
+      }
+      tileElement.style.setProperty("--remove-delay", `${delayMs}ms`);
+      tileElement.style.setProperty("--remove-duration", `${duration}ms`);
       tileElement.classList.add(className);
+      maxDelay = Math.max(maxDelay, delayMs);
     }
   }
+
+  return maxDelay;
 }
 
 async function animateRemoval(
@@ -697,8 +900,8 @@ async function animateRemoval(
     return;
   }
 
-  addRemovalClass(positions, className);
-  await wait(duration);
+  const maxDelay = addRemovalClass(positions, className, { duration });
+  await wait(duration + maxDelay);
 }
 
 function collectTilesByTypes(types) {
@@ -790,7 +993,7 @@ async function reshuffleBoard() {
     return;
   }
 
-  setModeStatus("没有可交换组合，正在洗牌...", "info");
+  setModeStatus("没有可走步，果盘重排中...", "info");
   playReshuffleSfx();
   boardElement.classList.add("reshuffling");
   await wait(ANIMATION_MS.reshuffle);
@@ -804,8 +1007,13 @@ async function reshuffleBoard() {
   renderBoard({ animateMovement: true, motion: "fall" });
 
   const allTiles = state.board.flat().filter(Boolean);
-  showHitEffect(allTiles, { special: true });
+  showHitEffect(allTiles, { tier: "reshuffle" });
   await wait(ANIMATION_MS.fall);
+  if (!state.hasSwappedOnce && state.firstMoveGuide) {
+    state.openingHintTiles = findSuggestedSwapPair();
+    renderBoard();
+  }
+  showTransientHint("棋盘已重排，继续连消吧。", 1800);
   updateModeStatus();
 }
 
@@ -893,14 +1101,17 @@ export function renderBoard({ animateMovement = false, motion = "fall" } = {}) {
       }
 
       const button = document.createElement("button");
-      const tileVisual = TILE_VISUALS[tile.type] ?? { icon: tile.type, name: tile.type };
+      const tileVisual = TILE_VISUALS[tile.type] ?? { name: tile.type };
       const isSelected =
         state.selectedTile &&
         positionEquals(state.selectedTile, { row: tile.row, col: tile.col });
 
       button.type = "button";
       button.className = tileClassName(tile.type);
-      button.innerHTML = `<span class="tile-icon" aria-hidden="true">${tileVisual.icon}</span>`;
+      button.innerHTML = `
+        <span class="tile-core" aria-hidden="true"></span>
+        <span class="tile-mark" aria-hidden="true"></span>
+      `;
       button.dataset.row = String(tile.row);
       button.dataset.col = String(tile.col);
       button.dataset.tileId = String(tile.id);
@@ -909,6 +1120,14 @@ export function renderBoard({ animateMovement = false, motion = "fall" } = {}) {
 
       if (isSelected) {
         button.classList.add("selected");
+      }
+      if (
+        state.firstMoveGuide &&
+        !state.hasSwappedOnce &&
+        !state.tutorialOpen &&
+        isOpeningHintTile(tile.row, tile.col)
+      ) {
+        button.classList.add("tutorial-suggested");
       }
 
       boardElement.append(button);
@@ -982,7 +1201,7 @@ export function renderCharacters() {
         <p class="character-role">${characterVisual.role}</p>
         <p class="charge-source">
           <span class="charge-icon">${characterVisual.chargeIcon}</span>
-          充能来源：${characterVisual.chargeName}消除
+          ${characterVisual.chargeName}消除可充能
         </p>
         <div class="energy-wrap">
           <div class="energy-bar">
@@ -1008,6 +1227,8 @@ export function renderCharacters() {
 }
 
 export function updateEnergyBars() {
+  let hasReadySkill = false;
+
   for (const character of state.characters) {
     const fill = charactersElement.querySelector(
       `[data-energy-fill="${character.id}"]`,
@@ -1022,6 +1243,7 @@ export function updateEnergyBars() {
       `[data-character-id="${character.id}"]`,
     );
     const ratio = (character.energy / character.maxEnergy) * 100;
+    const nearReady = ratio >= 75 && !character.skillReady;
 
     if (fill) {
       fill.style.width = `${ratio}%`;
@@ -1040,8 +1262,17 @@ export function updateEnergyBars() {
       button.classList.toggle("ready", ready);
     }
     if (card) {
+      card.classList.toggle("near-ready", nearReady);
       card.classList.toggle("ready-skill", character.skillReady);
     }
+    if (character.skillReady) {
+      hasReadySkill = true;
+    }
+  }
+
+  if (hasReadySkill && !state.skillHintShown && !state.tutorialOpen) {
+    state.skillHintShown = true;
+    showTransientHint("技能已就绪，点左侧按钮即可释放。", 2200);
   }
 }
 
@@ -1069,6 +1300,22 @@ export function updateScore(removedTileCount, comboLevel) {
   return gained;
 }
 
+function shouldShowScorePopup(removedCount, comboLevel, { tag = "", force = false } = {}) {
+  if (force) {
+    return true;
+  }
+
+  if (tag) {
+    return true;
+  }
+
+  if (comboLevel >= 2) {
+    return true;
+  }
+
+  return removedCount >= 5;
+}
+
 function showScorePopup(removedTiles, gainedScore, comboLevel, { tag = "" } = {}) {
   if (!scorePopLayerElement || removedTiles.length === 0 || gainedScore <= 0) {
     return;
@@ -1088,16 +1335,19 @@ function showScorePopup(removedTiles, gainedScore, comboLevel, { tag = "" } = {}
   popup.textContent = `${tag ? `${tag} ` : ""}+${gainedScore}${multiplierText}`;
 
   scorePopLayerElement.append(popup);
-  window.setTimeout(() => popup.remove(), 680);
+  while (scorePopLayerElement.childElementCount > 20) {
+    scorePopLayerElement.firstElementChild?.remove();
+  }
+  window.setTimeout(() => popup.remove(), 560);
 }
 
 function showComboBanner(comboLevel, gainedScore = 0) {
-  if (!comboBannerElement || comboLevel < 2) {
+  if (!comboBannerElement || comboLevel < 3) {
     return;
   }
 
   const multiplier = getComboMultiplier(comboLevel);
-  const comboText = comboLevel >= 3 ? `${comboLevel} 连击!` : "双连击!";
+  const comboText = comboLevel >= 5 ? `${comboLevel} 超连击!` : `${comboLevel} 连击!`;
   const scoreText = gainedScore > 0 ? ` +${gainedScore}` : "";
   comboBannerElement.textContent = `${comboText} x${multiplier}${scoreText}`;
   comboBannerElement.setAttribute("aria-hidden", "false");
@@ -1112,20 +1362,26 @@ function showComboBanner(comboLevel, gainedScore = 0) {
 
   state.comboBannerTimer = window.setTimeout(() => {
     hideComboBanner();
-  }, 560);
+  }, 520);
 }
 
 export async function processTurn(initialRemovedTiles = null, options = {}) {
+  const { skipInitialHitEffect = false, ...energyOptions } = options;
   let comboLevel = 0;
 
   if (initialRemovedTiles && initialRemovedTiles.length > 0) {
     comboLevel = 1;
     await animateRemoval(initialRemovedTiles);
     const gained = updateScore(initialRemovedTiles.length, comboLevel);
-    showScorePopup(initialRemovedTiles, gained, comboLevel);
-    showHitEffect(initialRemovedTiles);
+    if (shouldShowScorePopup(initialRemovedTiles.length, comboLevel)) {
+      showScorePopup(initialRemovedTiles, gained, comboLevel);
+    }
+    if (!skipInitialHitEffect) {
+      const initialTier = initialRemovedTiles.length >= 5 ? "combo" : "normal";
+      showHitEffect(initialRemovedTiles, { tier: initialTier });
+    }
     playHitSfx(initialRemovedTiles.length, comboLevel);
-    updateEnergy(initialRemovedTiles, options);
+    updateEnergy(initialRemovedTiles, energyOptions);
     await collapseAndRender();
   }
 
@@ -1146,8 +1402,11 @@ export async function processTurn(initialRemovedTiles = null, options = {}) {
     const removedTiles = removeMatches(state.board, matches);
     const regularGained = updateScore(removedTiles.length, comboLevel);
     let chainGained = regularGained;
-    showScorePopup(matchedTiles, regularGained, comboLevel);
-    showHitEffect(removedTiles, { special: false });
+    if (shouldShowScorePopup(removedTiles.length, comboLevel)) {
+      showScorePopup(matchedTiles, regularGained, comboLevel);
+    }
+    const regularTier = comboLevel >= 3 || removedTiles.length >= 5 ? "combo" : "normal";
+    showHitEffect(removedTiles, { tier: regularTier });
     playHitSfx(removedTiles.length, comboLevel);
 
     if (longMatchTypes.size > 0) {
@@ -1160,14 +1419,14 @@ export async function processTurn(initialRemovedTiles = null, options = {}) {
         const bonusGained = updateScore(bonusRemoved.length, comboLevel);
         chainGained += bonusGained;
         showScorePopup(bonusRemoved, bonusGained, comboLevel, {
-          tag: "同色清场",
+          tag: "同色全清",
         });
-        showHitEffect(bonusRemoved, { special: true });
+        showHitEffect(bonusRemoved, { tier: "special" });
         playHitSfx(bonusRemoved.length, comboLevel, { special: true });
       }
     }
 
-    if (comboLevel >= 2) {
+    if (comboLevel >= 3) {
       showComboBanner(comboLevel, chainGained);
     }
 
@@ -1208,8 +1467,11 @@ async function executeSkill(characterId) {
   const removedTiles = activateSkill(characterId, state.board);
 
   if (removedTiles.length > 0) {
-    showHitEffect(removedTiles, { special: true });
-    await processTurn(removedTiles, { skipCharacterId: characterId });
+    showHitEffect(removedTiles, { tier: "skill" });
+    await processTurn(removedTiles, {
+      skipCharacterId: characterId,
+      skipInitialHitEffect: true,
+    });
   } else {
     resetCombo(state.score);
     updateScoreDisplay();
@@ -1258,6 +1520,15 @@ async function handleTileSelection(position) {
     return;
   }
 
+  if (
+    state.firstMoveGuide &&
+    !state.hasSwappedOnce &&
+    state.openingHintTiles.length > 0
+  ) {
+    state.openingHintTiles = [];
+    updateHintText();
+  }
+
   if (!state.selectedTile) {
     setSelectedTile(position);
     return;
@@ -1303,6 +1574,10 @@ async function handleTileSelection(position) {
   }
 
   playSwapSfx(true);
+  if (!state.hasSwappedOnce) {
+    state.hasSwappedOnce = true;
+    updateHintText();
+  }
   consumeMoveIfNeeded();
   await processTurn();
   await resolveDeadlockIfNeeded();
@@ -1383,12 +1658,24 @@ function resetGame({ keepLevel = false } = {}) {
   state.isProcessing = false;
   state.autoSkillRunning = false;
   state.previousTilePositions = new Map();
+  state.hasSwappedOnce = false;
+  state.skillHintShown = false;
+  state.transientHint = "";
+  state.openingHintTiles = [];
   initializeModeState();
+
+  if (state.hintTimer) {
+    window.clearTimeout(state.hintTimer);
+    state.hintTimer = null;
+  }
 
   clearScorePopups();
   clearHitFx();
   hideComboBanner();
   rebuildPlayableBoard();
+  if (state.firstMoveGuide) {
+    state.openingHintTiles = findSuggestedSwapPair();
+  }
 
   renderCharacters();
   renderBoard();
@@ -1399,6 +1686,7 @@ function resetGame({ keepLevel = false } = {}) {
   updateModeStatus();
   updateNextLevelButton();
   updateSoundButton();
+  updateHintText();
 }
 
 function handleDifficultyChange(event) {
@@ -1454,7 +1742,7 @@ function handleNextLevelClick() {
 
   state.levelIndex += 1;
   resetGame({ keepLevel: true });
-  setModeStatus(`已进入第 ${state.levelIndex} 关，继续挑战！`, "info");
+  setModeStatus(`第 ${state.levelIndex} 关开始，冲击目标分！`, "info");
 }
 
 async function handleSoundToggle() {
