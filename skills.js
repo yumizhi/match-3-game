@@ -87,10 +87,10 @@ export function applyRandomClear(board) {
 }
 
 const SKILLS = {
-  1: { name: "十字爆破", apply: applyCrossClear },
-  2: { name: "行列清除", apply: applyRowOrColumnClear },
-  3: { name: "范围爆破", apply: applyAreaClear },
-  4: { name: "随机五消", apply: applyRandomClear },
+  1: { name: "十字清扫", apply: applyCrossClear },
+  2: { name: "行列清扫", apply: applyRowOrColumnClear },
+  3: { name: "范围清扫", apply: applyAreaClear },
+  4: { name: "随机摘果", apply: applyRandomClear },
 };
 
 export function getSkillName(characterId) {

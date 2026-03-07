@@ -8,10 +8,10 @@ export const TILE_TO_CHARACTER_ID = {
 };
 
 const CHARACTER_BLUEPRINTS = [
-  { id: 1, name: "战士" },
-  { id: 2, name: "法师" },
-  { id: 3, name: "游侠" },
-  { id: 4, name: "刺客" },
+  { id: 1, name: "草莓" },
+  { id: 2, name: "西瓜" },
+  { id: 3, name: "葡萄" },
+  { id: 4, name: "柠檬" },
 ];
 
 export function createCharacters() {

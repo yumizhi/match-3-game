@@ -37,6 +37,10 @@ const ANIMATION_MS = {
 
 const TUTORIAL_STORAGE_KEY = "match3_tutorial_seen_v1";
 const HIT_FX_MAX_NODES = 70;
+const HIT_FX_LOAD_SOFT = 38;
+const HIT_FX_LOAD_HARD = 56;
+const HIT_FX_LOAD_SKIP = 84;
+const SCORE_POP_MAX_NODES = 14;
 
 const HIT_FX_PRESETS = {
   normal: {
@@ -88,11 +92,72 @@ const TILE_VISUALS = {
   D: { name: "柠檬" },
 };
 
+const TILE_SVG_MARKUP = {
+  A: `
+    <svg class="tile-illustration" viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M18 23c4-7 9-10 14-10s10 3 14 10c-4-2-9-3-14-3s-10 1-14 3Z" fill="#6ca84e" />
+      <path d="M32 22c10 0 17 8 17 18 0 11-8 18-17 23-9-5-17-12-17-23 0-10 7-18 17-18Z" fill="#dc5b68" />
+      <path d="M24 31c2-4 5-7 9-8" stroke="#ffd7dc" stroke-width="4" stroke-linecap="round" />
+    </svg>
+  `,
+  B: `
+    <svg class="tile-illustration" viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M8 48c6-15 15-28 24-28s18 13 24 28H8Z" fill="#2f9958" />
+      <path d="M13 48c5-12 12-22 19-22s14 10 19 22H13Z" fill="#f2fff5" />
+      <path d="M18 48c4-9 9-16 14-16s10 7 14 16H18Z" fill="#f36e7e" />
+      <path d="M24 40c2-3 5-6 9-8" stroke="#ffd7dd" stroke-width="4" stroke-linecap="round" />
+    </svg>
+  `,
+  C: `
+    <svg class="tile-illustration" viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M33 15c3-5 7-7 11-6-2 4-5 7-10 9Z" fill="#6f9e4f" />
+      <rect x="31" y="14" width="3" height="10" rx="2" fill="#5f8e42" />
+      <circle cx="24" cy="26" r="8" fill="#8c79d2" />
+      <circle cx="40" cy="26" r="8" fill="#8570ca" />
+      <circle cx="19" cy="39" r="8" fill="#8069c6" />
+      <circle cx="32" cy="39" r="9" fill="#755fbe" />
+      <circle cx="45" cy="39" r="8" fill="#6d59b6" />
+      <path d="M24 24c1-2 3-3 5-4" stroke="#d9d0ff" stroke-width="3" stroke-linecap="round" />
+    </svg>
+  `,
+  D: `
+    <svg class="tile-illustration" viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M39 17c3-5 7-7 12-6-2 4-5 7-10 9Z" fill="#7caf56" />
+      <path d="M10 32c4-10 12-16 22-16s18 6 22 16c-4 10-12 16-22 16s-18-6-22-16Z" fill="#efcf59" />
+      <path d="M24 24c3-3 6-5 11-5" stroke="#fff4bf" stroke-width="4" stroke-linecap="round" />
+    </svg>
+  `,
+  DEFAULT: `
+    <svg class="tile-illustration" viewBox="0 0 64 64" aria-hidden="true">
+      <circle cx="32" cy="32" r="18" fill="#94a3b8" />
+    </svg>
+  `,
+};
+
+function createSvgTemplate(markup) {
+  const template = document.createElement("template");
+  template.innerHTML = markup.trim();
+  return template;
+}
+
+const TILE_SVG_TEMPLATES = {
+  A: createSvgTemplate(TILE_SVG_MARKUP.A),
+  B: createSvgTemplate(TILE_SVG_MARKUP.B),
+  C: createSvgTemplate(TILE_SVG_MARKUP.C),
+  D: createSvgTemplate(TILE_SVG_MARKUP.D),
+  DEFAULT: createSvgTemplate(TILE_SVG_MARKUP.DEFAULT),
+};
+
+function createTileSvgNode(type) {
+  const template = TILE_SVG_TEMPLATES[type] ?? TILE_SVG_TEMPLATES.DEFAULT;
+  return template.content.firstElementChild.cloneNode(true);
+}
+
 const CHARACTER_VISUALS = {
-  1: { icon: "🍓", role: "十字破阵", chargeIcon: "🍓", chargeName: "草莓" },
-  2: { icon: "🍉", role: "行列掌控", chargeIcon: "🍉", chargeName: "西瓜" },
-  3: { icon: "🍇", role: "范围轰击", chargeIcon: "🍇", chargeName: "葡萄" },
-  4: { icon: "🍋", role: "诡影收割", chargeIcon: "🍋", chargeName: "柠檬" },
+  1: { icon: "🍓", role: "十字清扫", chargeIcon: "🍓", chargeName: "草莓" },
+  2: { icon: "🍉", role: "行列清扫", chargeIcon: "🍉", chargeName: "西瓜" },
+  3: { icon: "🍇", role: "范围清扫", chargeIcon: "🍇", chargeName: "葡萄" },
+  4: { icon: "🍋", role: "随机摘果", chargeIcon: "🍋", chargeName: "柠檬" },
 };
 
 const DIFFICULTY_CONFIGS = {
@@ -182,6 +247,8 @@ const state = {
   isProcessing: false,
   autoSkillRunning: false,
   previousTilePositions: new Map(),
+  tileElementsByPosition: new Map(),
+  boardMetrics: null,
   movesLeft: null,
   targetScore: null,
   gameOver: false,
@@ -206,6 +273,10 @@ function tileClassName(type) {
   return `tile tile-${type.toLowerCase()}`;
 }
 
+function getPositionKey(row, col) {
+  return `${row},${col}`;
+}
+
 function positionEquals(first, second) {
   return first.row === second.row && first.col === second.col;
 }
@@ -215,6 +286,24 @@ function getBoardGapPx() {
   const gapText = styles.rowGap || styles.gap || "0";
   const gap = Number.parseFloat(gapText);
   return Number.isFinite(gap) ? gap : 0;
+}
+
+function computeBoardMetrics(boardWidth = boardElement.clientWidth) {
+  const styles = window.getComputedStyle(boardElement);
+  const gap = getBoardGapPx();
+  const paddingLeft = Number.parseFloat(styles.paddingLeft || "0");
+  const paddingRight = Number.parseFloat(styles.paddingRight || "0");
+  const contentWidth = Math.max(0, boardWidth - paddingLeft - paddingRight);
+  const tileSize = Math.max(
+    0,
+    (contentWidth - gap * (BOARD_SIZE - 1)) / BOARD_SIZE,
+  );
+
+  return {
+    tileSize,
+    step: tileSize + gap,
+    boardWidth,
+  };
 }
 
 function isLevelMode() {
@@ -529,17 +618,14 @@ function updateSoundButton() {
 }
 
 function getBoardMetrics() {
-  const gap = getBoardGapPx();
-  const tileElement = boardElement.querySelector(".tile");
-  const boardRect = boardElement.getBoundingClientRect();
-  const tileSize =
-    tileElement?.getBoundingClientRect().width ?? (boardRect.width - gap * 7) / 8;
-  const step = tileSize + gap;
+  const boardWidth = boardElement.clientWidth;
+  if (state.boardMetrics && state.boardMetrics.boardWidth === boardWidth) {
+    return state.boardMetrics;
+  }
 
-  return {
-    tileSize,
-    step,
-  };
+  const metrics = computeBoardMetrics(boardWidth);
+  state.boardMetrics = metrics;
+  return metrics;
 }
 
 function getCenterPixelFromTiles(tiles) {
@@ -618,11 +704,26 @@ function showHitEffect(tiles, { tier = "normal" } = {}) {
     intensity = 0.95;
   }
 
+  const activeFxLoad = fxLayerElement.childElementCount;
+  const isPriorityTier = tier === "skill" || tier === "reshuffle";
+  if (activeFxLoad >= HIT_FX_LOAD_SKIP && !isPriorityTier && tileCount <= 4) {
+    return;
+  }
+
+  if (activeFxLoad > HIT_FX_LOAD_SOFT && !isPriorityTier) {
+    intensity *= 0.72;
+  }
+  if (activeFxLoad > HIT_FX_LOAD_HARD && !isPriorityTier) {
+    intensity *= 0.58;
+  }
+
   const ring = document.createElement("div");
   ring.className = preset.ringClassName;
   ring.style.left = `${x}px`;
   ring.style.top = `${y}px`;
-  fxLayerElement.append(ring);
+  const fragment = document.createDocumentFragment();
+  const createdNodes = [ring];
+  fragment.append(ring);
 
   const sparkClass = tier === "normal" || tier === "combo" ? "fx-spark" : "fx-spark special";
   const sparkCount = Math.max(1, Math.round(preset.sparkCount * intensity));
@@ -636,9 +737,8 @@ function showHitEffect(tiles, { tier = "normal" } = {}) {
     spark.style.top = `${y}px`;
     spark.style.setProperty("--dx", `${Math.cos(angle) * radius}px`);
     spark.style.setProperty("--dy", `${Math.sin(angle) * radius}px`);
-    fxLayerElement.append(spark);
-
-    window.setTimeout(() => spark.remove(), preset.durationMs);
+    fragment.append(spark);
+    createdNodes.push(spark);
   }
 
   const shardClass = tier === "normal" || tier === "combo" ? "fx-shard" : "fx-shard special";
@@ -653,12 +753,17 @@ function showHitEffect(tiles, { tier = "normal" } = {}) {
     shard.style.setProperty("--dx", `${Math.cos(angle) * radius}px`);
     shard.style.setProperty("--dy", `${Math.sin(angle) * radius}px`);
     shard.style.setProperty("--rot", `${Math.round(angle * (180 / Math.PI))}deg`);
-    fxLayerElement.append(shard);
-
-    window.setTimeout(() => shard.remove(), preset.durationMs + 120);
+    fragment.append(shard);
+    createdNodes.push(shard);
   }
 
-  window.setTimeout(() => ring.remove(), preset.durationMs);
+  fxLayerElement.append(fragment);
+  const cleanupDelay = preset.durationMs + (shardCount > 0 ? 140 : 24);
+  window.setTimeout(() => {
+    for (const node of createdNodes) {
+      node.remove();
+    }
+  }, cleanupDelay);
   trimFxNodesIfNeeded();
 }
 
@@ -848,7 +953,7 @@ function createPositionList(entries) {
   const unique = new Map();
 
   for (const entry of entries) {
-    unique.set(`${entry.row},${entry.col}`, {
+    unique.set(getPositionKey(entry.row, entry.col), {
       row: entry.row,
       col: entry.col,
     });
@@ -857,8 +962,17 @@ function createPositionList(entries) {
   return Array.from(unique.values());
 }
 
+function getTileElementAt(row, col) {
+  const key = getPositionKey(row, col);
+  return (
+    state.tileElementsByPosition.get(key) ??
+    boardElement.querySelector(`.tile[data-row="${row}"][data-col="${col}"]`)
+  );
+}
+
 function addRemovalClass(positions, className, { duration }) {
   const isMassRemoval = positions.length >= 10;
+  const skipStagger = positions.length >= 24;
   const center = positions.reduce(
     (sum, position) => ({
       row: sum.row + position.row,
@@ -871,14 +985,14 @@ function addRemovalClass(positions, className, { duration }) {
   let maxDelay = 0;
 
   for (const { row, col } of positions) {
-    const tileElement = boardElement.querySelector(
-      `.tile[data-row="${row}"][data-col="${col}"]`,
-    );
+    const tileElement = getTileElementAt(row, col);
     if (tileElement) {
       let delayMs = 0;
-      if (isMassRemoval) {
+      if (isMassRemoval && !skipStagger) {
         const distance = Math.hypot(row - centerRow, col - centerCol);
         delayMs = Math.min(55, Math.round(distance * 12));
+        tileElement.classList.add("mass-removing");
+      } else if (isMassRemoval) {
         tileElement.classList.add("mass-removing");
       }
       tileElement.style.setProperty("--remove-delay", `${delayMs}ms`);
@@ -900,8 +1014,15 @@ async function animateRemoval(
     return;
   }
 
-  const maxDelay = addRemovalClass(positions, className, { duration });
-  await wait(duration + maxDelay);
+  const tunedDuration =
+    positions.length >= 16
+      ? Math.max(96, Math.round(duration * 0.78))
+      : positions.length >= 10
+        ? Math.max(104, Math.round(duration * 0.88))
+        : duration;
+
+  const maxDelay = addRemovalClass(positions, className, { duration: tunedDuration });
+  await wait(tunedDuration + maxDelay);
 }
 
 function collectTilesByTypes(types) {
@@ -935,12 +1056,8 @@ async function animateTypeClear(entries) {
 }
 
 async function animateInvalidSwap(first, second) {
-  const firstTile = boardElement.querySelector(
-    `.tile[data-row="${first.row}"][data-col="${first.col}"]`,
-  );
-  const secondTile = boardElement.querySelector(
-    `.tile[data-row="${second.row}"][data-col="${second.col}"]`,
-  );
+  const firstTile = getTileElementAt(first.row, first.col);
+  const secondTile = getTileElementAt(second.row, second.col);
 
   const targets = [firstTile, secondTile].filter(Boolean);
   if (targets.length === 0) {
@@ -1092,6 +1209,8 @@ export function renderBoard({ animateMovement = false, motion = "fall" } = {}) {
   boardElement.innerHTML = "";
 
   const currentPositions = new Map();
+  const tileElementsByPosition = new Map();
+  const fragment = document.createDocumentFragment();
 
   for (let row = 0; row < state.board.length; row += 1) {
     for (let col = 0; col < state.board[row].length; col += 1) {
@@ -1108,10 +1227,11 @@ export function renderBoard({ animateMovement = false, motion = "fall" } = {}) {
 
       button.type = "button";
       button.className = tileClassName(tile.type);
-      button.innerHTML = `
-        <span class="tile-core" aria-hidden="true"></span>
-        <span class="tile-mark" aria-hidden="true"></span>
-      `;
+      const tileFace = document.createElement("span");
+      tileFace.className = "tile-face";
+      tileFace.setAttribute("aria-hidden", "true");
+      tileFace.append(createTileSvgNode(tile.type));
+      button.append(tileFace);
       button.dataset.row = String(tile.row);
       button.dataset.col = String(tile.col);
       button.dataset.tileId = String(tile.id);
@@ -1130,22 +1250,31 @@ export function renderBoard({ animateMovement = false, motion = "fall" } = {}) {
         button.classList.add("tutorial-suggested");
       }
 
-      boardElement.append(button);
+      fragment.append(button);
       currentPositions.set(tile.id, { row: tile.row, col: tile.col });
+      tileElementsByPosition.set(getPositionKey(tile.row, tile.col), button);
     }
   }
 
+  boardElement.append(fragment);
+  state.tileElementsByPosition = tileElementsByPosition;
+
+  const boardWidth = boardElement.clientWidth;
+  if (boardWidth > 0) {
+    if (!state.boardMetrics || state.boardMetrics.boardWidth !== boardWidth) {
+      state.boardMetrics = computeBoardMetrics(boardWidth);
+    }
+  } else {
+    state.boardMetrics = null;
+  }
+
   if (animateMovement) {
-    const firstTileElement = boardElement.querySelector(".tile");
-    const tileSize = firstTileElement
-      ? firstTileElement.getBoundingClientRect().height
-      : 0;
-    const step = tileSize + getBoardGapPx();
+    const { step } = getBoardMetrics();
     const isSwapMotion = motion === "swap";
     const duration = isSwapMotion ? ANIMATION_MS.swap : ANIMATION_MS.fall;
     const easing = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 
-    for (const button of boardElement.querySelectorAll(".tile")) {
+    for (const button of tileElementsByPosition.values()) {
       const tileId = Number(button.dataset.tileId);
       const newRow = Number(button.dataset.row);
       const newCol = Number(button.dataset.col);
@@ -1309,15 +1438,20 @@ function shouldShowScorePopup(removedCount, comboLevel, { tag = "", force = fals
     return true;
   }
 
-  if (comboLevel >= 2) {
+  if (comboLevel >= 3) {
     return true;
   }
 
-  return removedCount >= 5;
+  return removedCount >= 6;
 }
 
 function showScorePopup(removedTiles, gainedScore, comboLevel, { tag = "" } = {}) {
   if (!scorePopLayerElement || removedTiles.length === 0 || gainedScore <= 0) {
+    return;
+  }
+
+  const activePopupLoad = scorePopLayerElement.childElementCount;
+  if (activePopupLoad >= SCORE_POP_MAX_NODES && !tag && comboLevel < 4) {
     return;
   }
 
@@ -1334,8 +1468,11 @@ function showScorePopup(removedTiles, gainedScore, comboLevel, { tag = "" } = {}
   popup.style.top = `${y}px`;
   popup.textContent = `${tag ? `${tag} ` : ""}+${gainedScore}${multiplierText}`;
 
+  if (activePopupLoad >= SCORE_POP_MAX_NODES) {
+    scorePopLayerElement.firstElementChild?.remove();
+  }
   scorePopLayerElement.append(popup);
-  while (scorePopLayerElement.childElementCount > 20) {
+  while (scorePopLayerElement.childElementCount > SCORE_POP_MAX_NODES) {
     scorePopLayerElement.firstElementChild?.remove();
   }
   window.setTimeout(() => popup.remove(), 560);
@@ -1658,6 +1795,8 @@ function resetGame({ keepLevel = false } = {}) {
   state.isProcessing = false;
   state.autoSkillRunning = false;
   state.previousTilePositions = new Map();
+  state.tileElementsByPosition = new Map();
+  state.boardMetrics = null;
   state.hasSwappedOnce = false;
   state.skillHintShown = false;
   state.transientHint = "";
