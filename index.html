@@ -12,94 +12,113 @@
     <div class="bg-candy bg-candy-c" aria-hidden="true"></div>
 
     <main class="game-layout">
-      <section class="character-panel panel-card">
-        <header class="panel-heading">
-          <p class="panel-tag">技能队伍</p>
-          <h1>果园小队</h1>
-        </header>
+      <section class="character-panel panel-card" aria-label="技能队伍">
         <div id="characters" class="characters"></div>
       </section>
 
       <section class="board-panel panel-card">
-        <div class="board-toolbar">
-          <div class="toolbar-title">
-            <p class="game-kicker">Match 3</p>
-            <h2>缤纷果园</h2>
-            <p id="difficulty-desc" class="difficulty-desc"></p>
-          </div>
-          <div class="toolbar-controls toolbar-controls-primary">
-            <label class="sr-only" for="mode-select">模式</label>
-            <select id="mode-select" class="difficulty-select compact-select">
-              <option value="endless" selected>无限模式</option>
-              <option value="level">关卡模式</option>
-            </select>
-            <label class="sr-only" for="difficulty-select">难度</label>
-            <select id="difficulty-select" class="difficulty-select compact-select">
-              <option value="easy">轻松</option>
-              <option value="normal" selected>标准</option>
-              <option value="hard">困难</option>
-            </select>
-            <button id="restart-button" class="restart-button" type="button">
-              再来一局
-            </button>
-            <button
-              id="next-level-button"
-              class="restart-button next-level-button"
-              type="button"
-              hidden
-            >
-              下一关
-            </button>
+        <div class="board-top">
+          <div class="board-toolbar">
+            <div class="toolbar-control-stack">
+              <div class="toolbar-controls toolbar-controls-primary">
+                <label class="sr-only" for="mode-select">模式</label>
+                <select
+                  id="mode-select"
+                  class="difficulty-select compact-select control-select"
+                >
+                  <option value="endless" selected>无限模式</option>
+                  <option value="level">关卡模式</option>
+                </select>
+                <label class="sr-only" for="difficulty-select">难度</label>
+                <select
+                  id="difficulty-select"
+                  class="difficulty-select compact-select control-select"
+                >
+                  <option value="easy">轻松</option>
+                  <option value="normal" selected>标准</option>
+                  <option value="hard">困难</option>
+                </select>
+                <button
+                  id="restart-button"
+                  class="restart-button control-button control-button-secondary"
+                  type="button"
+                >
+                  再来一局
+                </button>
+                <button
+                  id="next-level-button"
+                  class="restart-button next-level-button control-button control-button-primary"
+                  type="button"
+                  hidden
+                >
+                  下一关
+                </button>
+              </div>
+              <div class="toolbar-controls toolbar-controls-secondary">
+                <button
+                  id="tutorial-button"
+                  class="restart-button utility-button control-button control-button-ghost"
+                  type="button"
+                >
+                  玩法提示
+                </button>
+                <button
+                  id="sound-button"
+                  class="restart-button utility-button control-button control-button-ghost"
+                  type="button"
+                >
+                  音效：开
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="toolbar-controls toolbar-controls-secondary">
-          <button id="tutorial-button" class="restart-button utility-button" type="button">
-            玩法提示
-          </button>
-          <button id="sound-button" class="restart-button utility-button" type="button">
-            音效：开
-          </button>
-        </div>
 
-        <header class="score-panel">
-          <div class="score-item score-main">
-            <span class="label">分数</span>
-            <span id="score-value" class="value">0</span>
-          </div>
-          <div class="score-item">
-            <span class="label">连击</span>
-            <span id="combo-value" class="value">0</span>
-          </div>
-          <div class="score-item level-only">
-            <span class="label">目标分</span>
-            <span id="target-value" class="value">∞</span>
-          </div>
-          <div class="score-item level-only">
-            <span class="label">剩余步数</span>
-            <span id="moves-value" class="value">∞</span>
-          </div>
-          <div class="score-item level-only">
-            <span class="label">关卡</span>
-            <span id="level-value" class="value">-</span>
-          </div>
-        </header>
+        <section class="board-dashboard" aria-label="对局信息">
+          <header class="score-panel">
+            <div class="score-item score-main">
+              <span class="label">分数</span>
+              <span id="score-value" class="value">0</span>
+            </div>
+            <div class="score-item">
+              <span class="label">连击</span>
+              <span id="combo-value" class="value">0</span>
+            </div>
+            <div class="score-item level-only">
+              <span class="label">目标分</span>
+              <span id="target-value" class="value">∞</span>
+            </div>
+            <div class="score-item level-only">
+              <span class="label">剩余步数</span>
+              <span id="moves-value" class="value">∞</span>
+            </div>
+            <div class="score-item level-only">
+              <span class="label">关卡</span>
+              <span id="level-value" class="value">-</span>
+            </div>
+          </header>
 
-        <div class="goal-progress level-only" aria-live="polite">
-          <div class="goal-progress-track">
-            <div id="goal-progress-fill" class="goal-progress-fill"></div>
+          <div class="board-status-stack">
+            <div class="goal-progress level-only" aria-live="polite">
+              <div class="goal-progress-track">
+                <div id="goal-progress-fill" class="goal-progress-fill"></div>
+              </div>
+              <span id="goal-progress-text" class="goal-progress-text">关卡进度</span>
+            </div>
+
+            <p id="mode-status" class="mode-status"></p>
           </div>
-          <span id="goal-progress-text" class="goal-progress-text">关卡进度</span>
-        </div>
+        </section>
 
-        <p id="mode-status" class="mode-status"></p>
-        <div id="combo-banner" class="combo-banner" aria-hidden="true"></div>
-
-        <div class="board-wrap">
-          <div class="board-frame" aria-hidden="true"></div>
-          <div id="board" class="board" aria-label="三消棋盘"></div>
-          <div id="fx-layer" class="fx-layer" aria-hidden="true"></div>
-          <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
-        </div>
+        <section class="board-stage" aria-label="棋盘区域">
+          <div id="combo-banner" class="combo-banner" aria-hidden="true"></div>
+          <div class="board-wrap">
+            <div class="board-frame" aria-hidden="true"></div>
+            <div id="board" class="board" aria-label="三消棋盘"></div>
+            <div id="fx-layer" class="fx-layer" aria-hidden="true"></div>
+            <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
+          </div>
+        </section>
         <p class="hint">交换相邻水果，凑出 3 连就能消除。</p>
       </section>
     </main>
@@ -112,6 +131,7 @@
       aria-label="新手引导"
     >
       <div class="tutorial-card">
+        <p class="tutorial-tag">新手引导</p>
         <h3>快速上手</h3>
         <p class="tutorial-intro">先玩一手，边玩边会。</p>
         <ol class="tutorial-list">
@@ -125,7 +145,11 @@
             <input id="tutorial-hide-toggle" type="checkbox" />
             下次不自动弹出
           </label>
-          <button id="tutorial-close-button" class="restart-button" type="button">
+          <button
+            id="tutorial-close-button"
+            class="restart-button control-button control-button-primary tutorial-confirm-button"
+            type="button"
+          >
             进入果园
           </button>
         </div>

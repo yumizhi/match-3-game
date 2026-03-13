@@ -1340,7 +1340,7 @@ export function renderCharacters() {
         </div>
         <button
           type="button"
-          class="skill-button"
+          class="skill-button control-button control-button-skill"
           data-skill-button="${character.id}"
           data-character-id="${character.id}"
         >
