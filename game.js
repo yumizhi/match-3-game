@@ -209,6 +209,41 @@ const LEVEL_SCALING = {
   hard: { targetStep: 1500, moveDropEvery: 3, minMoves: 12 },
 };
 
+const THEME_SEEDS = [
+  {
+    key: "orchard",
+    label: "晨露绿",
+    accentHue: 146,
+    accentSaturation: 28,
+    secondaryHue: 172,
+    tertiaryHue: 34,
+  },
+  {
+    key: "petal",
+    label: "果花粉",
+    accentHue: 8,
+    accentSaturation: 38,
+    secondaryHue: 148,
+    tertiaryHue: 38,
+  },
+  {
+    key: "lagoon",
+    label: "湖风蓝",
+    accentHue: 196,
+    accentSaturation: 36,
+    secondaryHue: 160,
+    tertiaryHue: 20,
+  },
+  {
+    key: "citrus",
+    label: "柑橘金",
+    accentHue: 38,
+    accentSaturation: 50,
+    secondaryHue: 118,
+    tertiaryHue: 356,
+  },
+];
+
 const boardElement = document.getElementById("board");
 const fxLayerElement = document.getElementById("fx-layer");
 const scorePopLayerElement = document.getElementById("score-pop-layer");
@@ -235,6 +270,12 @@ const tutorialCloseButtonElement = document.getElementById(
 );
 const tutorialHideToggleElement = document.getElementById("tutorial-hide-toggle");
 const hintElement = document.querySelector(".hint");
+const themeNameElement = document.getElementById("theme-name");
+const heroModeLabelElement = document.getElementById("hero-mode-label");
+const heroDifficultyLabelElement = document.getElementById("hero-difficulty-label");
+const boardThemeBadgeElement = document.getElementById("board-theme-badge");
+const themeFabElement = document.getElementById("theme-fab");
+const metaThemeColorElement = document.querySelector('meta[name="theme-color"]');
 
 const state = {
   difficulty: "normal",
@@ -263,6 +304,7 @@ const state = {
   openingHintTiles: [],
   hasSwappedOnce: false,
   skillHintShown: false,
+  themeSeedIndex: 0,
 };
 
 function wait(ms) {
@@ -316,6 +358,136 @@ function getDifficultyConfig() {
 
 function getModeConfig() {
   return MODE_CONFIGS[state.mode] ?? MODE_CONFIGS.endless;
+}
+
+function clampValue(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeHue(value) {
+  return ((value % 360) + 360) % 360;
+}
+
+function toHsl(hue, saturation, lightness) {
+  return `hsl(${normalizeHue(hue)}, ${clampValue(saturation, 0, 100)}%, ${clampValue(lightness, 0, 100)}%)`;
+}
+
+function toHsla(hue, saturation, lightness, alpha) {
+  return `hsla(${normalizeHue(hue)}, ${clampValue(saturation, 0, 100)}%, ${clampValue(lightness, 0, 100)}%, ${alpha})`;
+}
+
+function getThemeSeed() {
+  return THEME_SEEDS[state.themeSeedIndex] ?? THEME_SEEDS[0];
+}
+
+function getThemePalette() {
+  const seed = getThemeSeed();
+  const difficultyLightnessOffset =
+    {
+      easy: 4,
+      normal: 0,
+      hard: -6,
+    }[state.difficulty] ?? 0;
+  const modeHueOffset = isLevelMode() ? -8 : 6;
+  const primaryHue = seed.accentHue + modeHueOffset;
+  const primarySaturation = seed.accentSaturation + (isLevelMode() ? 4 : 0);
+  const neutralHue = seed.accentHue - 12;
+  const neutralSaturation = Math.max(10, seed.accentSaturation - 18);
+  const secondaryHue = seed.secondaryHue + (isLevelMode() ? -6 : 0);
+  const tertiaryHue = seed.tertiaryHue + (state.difficulty === "hard" ? -6 : 0);
+
+  const palette = {
+    "--bg-start": toHsl(neutralHue, neutralSaturation, 96 + difficultyLightnessOffset),
+    "--bg-mid": toHsl(neutralHue, neutralSaturation + 2, 93 + difficultyLightnessOffset),
+    "--bg-end": toHsl(neutralHue, neutralSaturation + 3, 89 + difficultyLightnessOffset),
+    "--bg-spot-a": toHsla(primaryHue, primarySaturation + 16, 72 + difficultyLightnessOffset, 0.18),
+    "--bg-spot-b": toHsla(tertiaryHue, 62, 72 + difficultyLightnessOffset, 0.18),
+    "--bg-spot-c": toHsla(secondaryHue, 34, 70 + difficultyLightnessOffset, 0.16),
+    "--shell-bg": toHsla(neutralHue, neutralSaturation + 2, 95 + difficultyLightnessOffset, 0.76),
+    "--panel-bg": toHsla(neutralHue, neutralSaturation + 4, 97 + difficultyLightnessOffset, 0.82),
+    "--panel-elevated": toHsla(neutralHue, neutralSaturation + 5, 99 + difficultyLightnessOffset, 0.92),
+    "--surface-base": toHsla(neutralHue, neutralSaturation + 4, 98 + difficultyLightnessOffset, 0.94),
+    "--surface-strong": toHsl(neutralHue, neutralSaturation + 4, 100),
+    "--surface-container": toHsla(neutralHue, neutralSaturation + 5, 95 + difficultyLightnessOffset, 0.9),
+    "--surface-container-high": toHsla(neutralHue, neutralSaturation + 5, 97 + difficultyLightnessOffset, 0.96),
+    "--surface-tint": toHsla(primaryHue, primarySaturation + 10, 46, 0.08),
+    "--surface-tint-strong": toHsla(primaryHue, primarySaturation + 10, 44, 0.14),
+    "--border-soft": toHsla(neutralHue, neutralSaturation + 8, 32, 0.12),
+    "--border-strong": toHsla(neutralHue, neutralSaturation + 12, 26, 0.24),
+    "--text-strong": toHsl(neutralHue, neutralSaturation + 12, 18),
+    "--text": toHsl(neutralHue, neutralSaturation + 10, 28),
+    "--text-muted": toHsl(neutralHue, neutralSaturation + 8, 41),
+    "--text-soft": toHsl(neutralHue, neutralSaturation + 8, 54),
+    "--accent": toHsl(primaryHue, primarySaturation + 14, 45),
+    "--accent-highlight": toHsl(primaryHue + 4, primarySaturation + 18, 58),
+    "--accent-strong": toHsl(primaryHue - 4, primarySaturation + 16, 34),
+    "--accent-soft": toHsla(primaryHue, primarySaturation + 14, 48, 0.14),
+    "--accent-border": toHsla(primaryHue, primarySaturation + 14, 42, 0.24),
+    "--accent-ring": toHsla(primaryHue, primarySaturation + 14, 48, 0.18),
+    "--accent-ink": toHsl(primaryHue - 2, primarySaturation + 18, 28),
+    "--accent-outline": toHsla(primaryHue, primarySaturation + 18, 48, 0.26),
+    "--accent-shadow": toHsla(primaryHue - 4, primarySaturation + 18, 28, 0.34),
+    "--accent-shadow-strong": toHsla(primaryHue - 4, primarySaturation + 20, 26, 0.48),
+    "--secondary": toHsl(secondaryHue, 24, 46),
+    "--secondary-strong": toHsl(secondaryHue - 6, 24, 34),
+    "--secondary-soft": toHsla(secondaryHue, 24, 48, 0.16),
+    "--success": toHsl(secondaryHue, 38, 46),
+    "--success-strong": toHsl(secondaryHue - 8, 38, 30),
+    "--success-soft": toHsla(secondaryHue, 38, 46, 0.16),
+    "--warning": toHsl(tertiaryHue, 62, 50),
+    "--warning-strong": toHsl(tertiaryHue - 4, 62, 34),
+    "--warning-soft": toHsla(tertiaryHue, 62, 50, 0.18),
+    "--warning-ink": toHsl(tertiaryHue - 4, 58, 28),
+    "--danger": toHsl(primaryHue - 54, 28, 52),
+    "--danger-soft": toHsla(primaryHue - 54, 28, 52, 0.18),
+    "--board-shell-start": toHsl(primaryHue + 8, primarySaturation + 8, 72),
+    "--board-shell-end": toHsl(primaryHue - 6, primarySaturation + 16, 38),
+    "--board-grid": toHsla(neutralHue, neutralSaturation + 16, 100, 0.14),
+  };
+
+  return { seed, palette };
+}
+
+function updateHeroUI() {
+  const seed = getThemeSeed();
+  const difficultyConfig = getDifficultyConfig();
+  const modeConfig = getModeConfig();
+
+  if (themeNameElement) {
+    themeNameElement.textContent = seed.label;
+  }
+  if (heroModeLabelElement) {
+    heroModeLabelElement.textContent = modeConfig.label;
+  }
+  if (heroDifficultyLabelElement) {
+    heroDifficultyLabelElement.textContent = difficultyConfig.label;
+  }
+  if (boardThemeBadgeElement) {
+    boardThemeBadgeElement.textContent = `${seed.label} · ${modeConfig.label}`;
+  }
+  if (difficultyDescElement) {
+    difficultyDescElement.textContent = `${difficultyConfig.desc} 色板会随模式与难度自动微调。`;
+  }
+  if (themeFabElement) {
+    themeFabElement.setAttribute("aria-label", `切换动态色板，当前 ${seed.label}`);
+  }
+}
+
+function applyDynamicTheme() {
+  const { palette } = getThemePalette();
+
+  for (const [name, value] of Object.entries(palette)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+
+  if (metaThemeColorElement) {
+    metaThemeColorElement.setAttribute(
+      "content",
+      palette["--bg-mid"] ?? "#edf3eb",
+    );
+  }
+
+  updateHeroUI();
 }
 
 function updateModeBodyClass() {
@@ -782,10 +954,6 @@ function updateDifficultyUI() {
 
   if (difficultySelectElement) {
     difficultySelectElement.value = config.key;
-  }
-
-  if (difficultyDescElement) {
-    difficultyDescElement.textContent = config.desc;
   }
 }
 
@@ -1812,6 +1980,7 @@ function resetGame({ keepLevel = false } = {}) {
   clearHitFx();
   hideComboBanner();
   rebuildPlayableBoard();
+  applyDynamicTheme();
   if (state.firstMoveGuide) {
     state.openingHintTiles = findSuggestedSwapPair();
   }
@@ -1894,6 +2063,12 @@ async function handleSoundToggle() {
   }
 }
 
+function handleThemeFabClick() {
+  state.themeSeedIndex = (state.themeSeedIndex + 1) % THEME_SEEDS.length;
+  applyDynamicTheme();
+  showTransientHint(`已切换为 ${getThemeSeed().label} 动态色板。`, 1600);
+}
+
 function handleTutorialButtonClick() {
   openTutorial();
 }
@@ -1914,6 +2089,35 @@ function handleTutorialOverlayClick(event) {
   }
 }
 
+function renderGameToText() {
+  const payload = {
+    coordinateSystem: "origin=top-left,row increases downward,col increases rightward",
+    mode: state.mode,
+    difficulty: state.difficulty,
+    level: state.levelIndex,
+    score: state.score.score,
+    combo: state.score.combo,
+    movesLeft: state.movesLeft,
+    targetScore: state.targetScore,
+    gameOver: state.gameOver,
+    gameResult: state.gameResult,
+    tutorialOpen: state.tutorialOpen,
+    hint: hintElement?.textContent ?? "",
+    theme: getThemeSeed().label,
+    selectedTile: state.selectedTile,
+    readyCharacters: state.characters
+      .filter((character) => character.skillReady)
+      .map((character) => character.id),
+    board: state.board.map((row) => row.map((tile) => tile?.type ?? null)),
+  };
+
+  return JSON.stringify(payload);
+}
+
+window.render_game_to_text = renderGameToText;
+window.advanceTime = (ms = 0) =>
+  new Promise((resolve) => window.setTimeout(resolve, Math.max(0, ms)));
+
 function initializeGame() {
   resetGame();
 
@@ -1929,6 +2133,7 @@ function initializeGame() {
   tutorialButtonElement?.addEventListener("click", handleTutorialButtonClick);
   tutorialCloseButtonElement?.addEventListener("click", handleTutorialCloseClick);
   tutorialOverlayElement?.addEventListener("click", handleTutorialOverlayClick);
+  themeFabElement?.addEventListener("click", handleThemeFabClick);
   window.addEventListener("keydown", handleGlobalKeydown);
 
   if (shouldAutoShowTutorial()) {

@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#edf3eb" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23f4f6f0'/%3E%3Ccircle cx='22' cy='25' r='10' fill='%23e86d7c'/%3E%3Ccircle cx='42' cy='24' r='10' fill='%23f2cf63'/%3E%3Ccircle cx='32' cy='41' r='10' fill='%238878df'/%3E%3C/svg%3E"
+    />
     <title>缤纷果园三消</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -11,117 +16,168 @@
     <div class="bg-candy bg-candy-b" aria-hidden="true"></div>
     <div class="bg-candy bg-candy-c" aria-hidden="true"></div>
 
-    <main class="game-layout">
-      <section class="character-panel panel-card" aria-label="技能队伍">
-        <div id="characters" class="characters"></div>
-      </section>
-
-      <section class="board-panel panel-card">
-        <div class="board-top">
-          <div class="board-toolbar">
-            <div class="toolbar-control-stack">
-              <div class="toolbar-controls toolbar-controls-primary">
-                <label class="sr-only" for="mode-select">模式</label>
-                <select
-                  id="mode-select"
-                  class="difficulty-select compact-select control-select"
-                >
-                  <option value="endless" selected>无限模式</option>
-                  <option value="level">关卡模式</option>
-                </select>
-                <label class="sr-only" for="difficulty-select">难度</label>
-                <select
-                  id="difficulty-select"
-                  class="difficulty-select compact-select control-select"
-                >
-                  <option value="easy">轻松</option>
-                  <option value="normal" selected>标准</option>
-                  <option value="hard">困难</option>
-                </select>
-                <button
-                  id="restart-button"
-                  class="restart-button control-button control-button-secondary"
-                  type="button"
-                >
-                  再来一局
-                </button>
-                <button
-                  id="next-level-button"
-                  class="restart-button next-level-button control-button control-button-primary"
-                  type="button"
-                  hidden
-                >
-                  下一关
-                </button>
-              </div>
-              <div class="toolbar-controls toolbar-controls-secondary">
-                <button
-                  id="tutorial-button"
-                  class="restart-button utility-button control-button control-button-ghost"
-                  type="button"
-                >
-                  玩法提示
-                </button>
-                <button
-                  id="sound-button"
-                  class="restart-button utility-button control-button control-button-ghost"
-                  type="button"
-                >
-                  音效：开
-                </button>
-              </div>
-            </div>
+    <main class="app-shell">
+      <section class="hero-banner panel-card" aria-label="应用概览">
+        <div class="hero-content">
+          <p class="hero-eyebrow">Material You Orchard UI</p>
+          <h1>缤纷果园三消</h1>
+          <p class="hero-subtitle">
+            用 28px 大圆角、色调容器、动态色板和悬浮操作按钮，做一套更接近 Material
+            You 的游戏界面。
+          </p>
+        </div>
+        <div class="hero-meta" aria-label="当前主题信息">
+          <div class="hero-chip hero-chip-primary">
+            <span class="hero-chip-label">色板</span>
+            <strong id="theme-name">晨露绿</strong>
+          </div>
+          <div class="hero-chip">
+            <span class="hero-chip-label">模式</span>
+            <strong id="hero-mode-label">无限模式</strong>
+          </div>
+          <div class="hero-chip">
+            <span class="hero-chip-label">难度</span>
+            <strong id="hero-difficulty-label">标准</strong>
           </div>
         </div>
+      </section>
 
-        <section class="board-dashboard" aria-label="对局信息">
-          <header class="score-panel">
-            <div class="score-item score-main">
-              <span class="label">分数</span>
-              <span id="score-value" class="value">0</span>
+      <section class="game-layout">
+        <section class="character-panel panel-card" aria-label="技能队伍">
+          <header class="section-heading">
+            <p class="section-kicker">Companions</p>
+            <h2 class="section-title">果园搭档</h2>
+            <p class="section-copy">
+              同色消除会为对应角色充能，技能亮起后可以立刻接上连锁清场。
+            </p>
+          </header>
+          <div id="characters" class="characters"></div>
+        </section>
+
+        <section class="board-panel panel-card">
+          <header class="board-hero">
+            <div>
+              <p class="section-kicker">Play Surface</p>
+              <h2 class="board-title">动态色彩棋盘</h2>
+              <p id="difficulty-desc" class="board-supporting-text">
+                标准节奏，适合稳定冲分。色板会随模式与难度自动微调。
+              </p>
             </div>
-            <div class="score-item">
-              <span class="label">连击</span>
-              <span id="combo-value" class="value">0</span>
-            </div>
-            <div class="score-item level-only">
-              <span class="label">目标分</span>
-              <span id="target-value" class="value">∞</span>
-            </div>
-            <div class="score-item level-only">
-              <span class="label">剩余步数</span>
-              <span id="moves-value" class="value">∞</span>
-            </div>
-            <div class="score-item level-only">
-              <span class="label">关卡</span>
-              <span id="level-value" class="value">-</span>
-            </div>
+            <div id="board-theme-badge" class="board-hero-badge">晨露绿 · 无限模式</div>
           </header>
 
-          <div class="board-status-stack">
-            <div class="goal-progress level-only" aria-live="polite">
-              <div class="goal-progress-track">
-                <div id="goal-progress-fill" class="goal-progress-fill"></div>
+          <div class="board-top">
+            <div class="board-toolbar">
+              <div class="toolbar-control-stack">
+                <div class="toolbar-controls toolbar-controls-primary">
+                  <label class="sr-only" for="mode-select">模式</label>
+                  <select
+                    id="mode-select"
+                    class="difficulty-select compact-select control-select"
+                  >
+                    <option value="endless" selected>无限模式</option>
+                    <option value="level">关卡模式</option>
+                  </select>
+                  <label class="sr-only" for="difficulty-select">难度</label>
+                  <select
+                    id="difficulty-select"
+                    class="difficulty-select compact-select control-select"
+                  >
+                    <option value="easy">轻松</option>
+                    <option value="normal" selected>标准</option>
+                    <option value="hard">困难</option>
+                  </select>
+                  <button
+                    id="restart-button"
+                    class="restart-button control-button control-button-secondary"
+                    type="button"
+                  >
+                    再来一局
+                  </button>
+                  <button
+                    id="next-level-button"
+                    class="restart-button next-level-button control-button control-button-primary"
+                    type="button"
+                    hidden
+                  >
+                    下一关
+                  </button>
+                </div>
+                <div class="toolbar-controls toolbar-controls-secondary">
+                  <button
+                    id="tutorial-button"
+                    class="restart-button utility-button control-button control-button-ghost"
+                    type="button"
+                  >
+                    玩法提示
+                  </button>
+                  <button
+                    id="sound-button"
+                    class="restart-button utility-button control-button control-button-ghost"
+                    type="button"
+                  >
+                    音效：开
+                  </button>
+                </div>
               </div>
-              <span id="goal-progress-text" class="goal-progress-text">关卡进度</span>
             </div>
-
-            <p id="mode-status" class="mode-status"></p>
           </div>
-        </section>
-
-        <section class="board-stage" aria-label="棋盘区域">
-          <div id="combo-banner" class="combo-banner" aria-hidden="true"></div>
-          <div class="board-wrap">
-            <div class="board-frame" aria-hidden="true"></div>
-            <div id="board" class="board" aria-label="三消棋盘"></div>
-            <div id="fx-layer" class="fx-layer" aria-hidden="true"></div>
-            <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
           </div>
+
+          <section class="board-dashboard" aria-label="对局信息">
+            <header class="score-panel">
+              <div class="score-item score-main">
+                <span class="label">分数</span>
+                <span id="score-value" class="value">0</span>
+              </div>
+              <div class="score-item">
+                <span class="label">连击</span>
+                <span id="combo-value" class="value">0</span>
+              </div>
+              <div class="score-item level-only">
+                <span class="label">目标分</span>
+                <span id="target-value" class="value">∞</span>
+              </div>
+              <div class="score-item level-only">
+                <span class="label">剩余步数</span>
+                <span id="moves-value" class="value">∞</span>
+              </div>
+              <div class="score-item level-only">
+                <span class="label">关卡</span>
+                <span id="level-value" class="value">-</span>
+              </div>
+            </header>
+
+            <div class="board-status-stack">
+              <div class="goal-progress level-only" aria-live="polite">
+                <div class="goal-progress-track">
+                  <div id="goal-progress-fill" class="goal-progress-fill"></div>
+                </div>
+                <span id="goal-progress-text" class="goal-progress-text">关卡进度</span>
+              </div>
+
+              <p id="mode-status" class="mode-status"></p>
+            </div>
+          </section>
+
+          <section class="board-stage" aria-label="棋盘区域">
+            <div id="combo-banner" class="combo-banner" aria-hidden="true"></div>
+            <div class="board-wrap">
+              <div class="board-frame" aria-hidden="true"></div>
+              <div id="board" class="board" aria-label="三消棋盘"></div>
+              <div id="fx-layer" class="fx-layer" aria-hidden="true"></div>
+              <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
+            </div>
+          </section>
+          <p class="hint">交换相邻水果，凑出 3 连就能消除。</p>
         </section>
-        <p class="hint">交换相邻水果，凑出 3 连就能消除。</p>
       </section>
     </main>
+
+    <button id="theme-fab" class="theme-fab" type="button" aria-label="切换动态色板">
+      <span class="theme-fab-icon" aria-hidden="true">✦</span>
+      <span class="theme-fab-label">切换色板</span>
+    </button>
 
     <div
       id="tutorial-overlay"
